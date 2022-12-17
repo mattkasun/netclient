@@ -10,31 +10,31 @@ on:
     types: [published]
 
 jobs:
-  gui-builds:
-    strategy:
-      fail-fast: false
-      matrix:
-        build: [
-          {name: netclient-linux-amd64, platform: linux/amd64, os: ubuntu-latest},
-          {name: netclient-linux-arm64, platform: linux/arm64, os: ubuntu-latest},
-          {name: netclient-linux-arm7, platform: linux/arm7, os: ubuntu-latest},
-          {name: netclient-linux-arm6, platform: linux/arm6, os: ubuntu-latest},
-          {name: netclient-linux-arm5, platform: linux/arm5, os: ubuntu-latest},
-          {name: netclient-darwin-amd64, platform: darwin/amd64, os: macos-latest},
-          {name: netclient-darwin-arm64, platform: darwin/arm64, os: macos-latest},
-          {name: netclient-window-arm64, platform: windows/amd64, os: windows-latest},
-        ]
-    runs-on: ${{ matrix-os }}
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          submodules: recursive
-      - uses: dAppServer/wails-build-action@v2
-        with:
-          build-name: ${{ matrix.build.name }}
-          build-platform: ${{ matrix.build.platform }}
-          go-version: 1.19
-          node-version: 19.x
+#  gui-builds:
+#    strategy:
+#      fail-fast: false
+#      matrix:
+#        build: [
+#          {name: netclient-linux-amd64, platform: linux/amd64, os: ubuntu-latest},
+#          {name: netclient-linux-arm64, platform: linux/arm64, os: ubuntu-latest},
+#          {name: netclient-linux-arm7, platform: linux/arm7, os: ubuntu-latest},
+#          {name: netclient-linux-arm6, platform: linux/arm6, os: ubuntu-latest},
+#          {name: netclient-linux-arm5, platform: linux/arm5, os: ubuntu-latest},
+#          {name: netclient-darwin-amd64, platform: darwin/amd64, os: macos-latest},
+#          {name: netclient-darwin-arm64, platform: darwin/arm64, os: macos-latest},
+#          {name: netclient-window-arm64, platform: windows/amd64, os: windows-latest},
+#        ]
+#    runs-on: ${{ matrix-os }}
+#    steps:
+#      - uses: actions/checkout@v3
+#        with:
+#          submodules: recursive
+#      - uses: dAppServer/wails-build-action@v2
+#        with:
+#          build-name: ${{ matrix.build.name }}
+#          build-platform: ${{ matrix.build.platform }}
+#          go-version: 1.19
+#          node-version: 19.x
 
   version:
     runs-on: ubuntu-latest
@@ -54,73 +54,73 @@ jobs:
           PACKAGE_VERSION=$(echo ${NETMAKER_VERSION} | tr -cd '[:digit:].')
           echo "PACKAGE_VERSION=${PACKAGE_VERSION}" >> $GITHUB_ENV
 
-  netclient-x86:
-    runs-on: ubuntu-latest
-    needs: version
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-          echo "PACKAGE_VERSION=${VERSION}" >> $GITHUB_ENV
-      - name: Setup go
-        uses: actions/setup-go@v3
-        with:
-          go-version: 1.19
-      - name: Setup npm
-        uses: actions/setup-nodev3
-      - name: build gui
-        run: |
-          sudo apt-get update
-          sudo apt-get install build-essential libgtk3 libwebkit
-          go build -tags desktop,production ldflags="-s -w" -o build/netclient .
-      - name: Package x86 deb
-        continue-on-error: true
-        uses: gravitl/github-action-fpm@master
-        with:
-          fpm_args: './netclient/build/netclient-linux-amd64=/sbin/netclient ./netclient/build/netclient.service=/lib/systemd/system/netclient.service'
-          fpm_opts: '-s dir -t deb --architecture amd64 --version ${{ env.PACKAGE_VERSION }}'
-      - name: Upload x86 deb to Release
-        continue-on-error: true
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: netclient_${{ env.PACKAGE_VERSION }}_amd64.deb
-          tag: ${{ env.NETMAKER_VERSION }}
-          overwrite: true
-          prerelease: true
-          asset_name: netclient_${{ env.PACKAGE_VERSION }}_amd64.deb
-      - name: Package x86 rpm
-        continue-on-error: true
-        uses: gravitl/github-action-fpm@master
-        with:
-          fpm_args: './netclient/build/netclient=/sbin/netclient ./netclient/build/netclient.service=/lib/systemd/system/netclient.service'
-          fpm_opts: '-s dir -t rpm --architecture amd64 --version ${{ env.PACKAGE_VERSION }}'
-      - name: Upload x86 rpm to Release
-        continue-on-error: true
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: netclient-${{ env.PACKAGE_VERSION }}-1.x86_64.rpm
-          tag: ${{ env.NETMAKER_VERSION }}
-          overwrite: true
-          prerelease: true
-          asset_name: netclient-${{ env.PACKAGE_VERSION }}-1.x86_64.rpm
-      - name: Package x86 pacman
-        continue-on-error: true
-        uses: gravitl/github-action-fpm@master
-        with:
-          # arch has particular path requirements --- cannot write to a symbolic link e.g. /sbin and /lib
-          fpm_args: './netclient/build/netclient=/usr/bin/netclient ./netclient/build/netclient.service=/usr/lib/systemd/system/netclient.service'
-          fpm_opts: '-s dir -t pacman --architecture amd64 --version ${{ env.PACKAGE_VERSION }}'
-      - name: Upload x86 pacman to Release
-        continue-on-error: true
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: netclient-${{ env.PACKAGE_VERSION }}-1-x86_64.pkg.tar.zst
-          tag: ${{ env.NETMAKER_VERSION }}
-          overwrite: true
-          prerelease: true
-          asset_name: netclient-${{ env.PACKAGE_VERSION }}-1-x86_64.pkg.tar.zst
+#  netclient-x86:
+#    runs-on: ubuntu-latest
+#    needs: version
+#    steps:
+#      - name: Checkout
+#        uses: actions/checkout@v3
+#          echo "PACKAGE_VERSION=${VERSION}" >> $GITHUB_ENV
+#      - name: Setup go
+#        uses: actions/setup-go@v3
+#        with:
+#          go-version: 1.19
+#      - name: Setup npm
+#        uses: actions/setup-nodev3
+#      - name: build gui
+#        run: |
+#          sudo apt-get update
+#          sudo apt-get install build-essential libgtk3 libwebkit
+#          go build -tags desktop,production ldflags="-s -w" -o build/netclient .
+#      - name: Package x86 deb
+#        continue-on-error: true
+#        uses: gravitl/github-action-fpm@master
+#        with:
+#          fpm_args: './netclient/build/netclient-linux-amd64=/sbin/netclient ./netclient/build/netclient.service=/lib/systemd/system/netclient.service'
+#          fpm_opts: '-s dir -t deb --architecture amd64 --version ${{ env.PACKAGE_VERSION }}'
+#      - name: Upload x86 deb to Release
+#        continue-on-error: true
+#        uses: svenstaro/upload-release-action@v2
+#        with:
+#          repo_token: ${{ secrets.GITHUB_TOKEN }}
+#          file: netclient_${{ env.PACKAGE_VERSION }}_amd64.deb
+#          tag: ${{ env.NETMAKER_VERSION }}
+#          overwrite: true
+#          prerelease: true
+#          asset_name: netclient_${{ env.PACKAGE_VERSION }}_amd64.deb
+#      - name: Package x86 rpm
+#        continue-on-error: true
+#        uses: gravitl/github-action-fpm@master
+#        with:
+#          fpm_args: './netclient/build/netclient=/sbin/netclient ./netclient/build/netclient.service=/lib/systemd/system/netclient.service'
+#          fpm_opts: '-s dir -t rpm --architecture amd64 --version ${{ env.PACKAGE_VERSION }}'
+#      - name: Upload x86 rpm to Release
+#        continue-on-error: true
+#        uses: svenstaro/upload-release-action@v2
+#        with:
+#          repo_token: ${{ secrets.GITHUB_TOKEN }}
+#          file: netclient-${{ env.PACKAGE_VERSION }}-1.x86_64.rpm
+#          tag: ${{ env.NETMAKER_VERSION }}
+#          overwrite: true
+#          prerelease: true
+#          asset_name: netclient-${{ env.PACKAGE_VERSION }}-1.x86_64.rpm
+#      - name: Package x86 pacman
+#        continue-on-error: true
+#        uses: gravitl/github-action-fpm@master
+#        with:
+#          # arch has particular path requirements --- cannot write to a symbolic link e.g. /sbin and /lib
+#          fpm_args: './netclient/build/netclient=/usr/bin/netclient ./netclient/build/netclient.service=/usr/lib/systemd/system/netclient.service'
+#          fpm_opts: '-s dir -t pacman --architecture amd64 --version ${{ env.PACKAGE_VERSION }}'
+#      - name: Upload x86 pacman to Release
+#        continue-on-error: true
+#        uses: svenstaro/upload-release-action@v2
+#        with:
+#          repo_token: ${{ secrets.GITHUB_TOKEN }}
+#          file: netclient-${{ env.PACKAGE_VERSION }}-1-x86_64.pkg.tar.zst
+#          tag: ${{ env.NETMAKER_VERSION }}
+#          overwrite: true
+#          prerelease: true
+#          asset_name: netclient-${{ env.PACKAGE_VERSION }}-1-x86_64.pkg.tar.zst
 
 #  netclient-arm:
 #    runs-on: ubuntu-latest
