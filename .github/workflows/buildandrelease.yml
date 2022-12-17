@@ -26,7 +26,7 @@ jobs:
         ]
         platform: [linux/amd64, linux/amd64, linux/arm7, linux/arm6, linux/arm5, darwin/amd64, darwin/arm64, windows/amd64]
         os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix-os }}
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
         with:
