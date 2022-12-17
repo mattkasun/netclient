@@ -24,7 +24,7 @@ jobs:
           {name: netclient-darwin-arm64, platform: darwin/arm64, os: macos-latest},
           {name: netclient-window-arm64, platform: windows/amd64, os: windows-latest},
         ]
-    runs-on: ${{ matrix-os }}
+    runs-on: ${{ matrix-build-os }}
     steps:
       - uses: actions/checkout@v3
         with:
