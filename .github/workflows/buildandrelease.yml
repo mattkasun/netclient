@@ -10,23 +10,20 @@ on:
     types: [published]
 
 jobs:
-  gui-builds:
+
+  linux-gui-builds:
     strategy:
       fail-fast: false
       matrix:
         name: [
-          netclient-linxu-amd64, 
+          netclient-linux-amd64, 
           netclient-linux-arm64, 
           netclient-linux-arm7,
           netclient-linux-arm6,
           netclient-linux-arm5,
-          netclient-darwin-amd64,
-          netclient-darwin-arm64,
-          netclient-windows-amd64
         ]
-        platform: [linux/amd64, linux/amd64, linux/arm7, linux/arm6, linux/arm5, darwin/amd64, darwin/arm64, windows/amd64]
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+        platform: [linux/amd64, linux/amd64, linux/arm7, linux/arm6, linux/arm5]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
         with:
@@ -35,6 +32,40 @@ jobs:
         with:
           build-name: ${{ matrix.name }}
           build-platform: ${{ matrix.platform }}
+          go-version: 1.19
+          node-version: 19.x
+
+  darwin-gui-builds:
+    strategy:
+      fail-fast: false
+      matrix:
+        name: [
+          netclient-darwin-amd64,
+          netclient-darwin-arm64,
+        ]
+        platform: [darwin/amd64, darwin/arm64]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+      - uses: dAppServer/wails-build-action@v2
+        with:
+          build-name: ${{ matrix.name }}
+          build-platform: ${{ matrix.platform }}
+          go-version: 1.19
+          node-version: 19.x
+
+  windows-gui-builds:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+      - uses: dAppServer/wails-build-action@v2
+        with:
+          build-name: netclient-windows-amd64
+          build-platform: windows/amd64
           go-version: 1.19
           node-version: 19.x
 
