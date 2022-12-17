@@ -11,61 +11,29 @@ on:
 
 jobs:
 
-  linux-gui-builds:
+  gui-builds:
     strategy:
       fail-fast: false
       matrix:
-        name: [
-          netclient-linux-amd64, 
-          netclient-linux-arm64, 
-          netclient-linux-arm7,
-          netclient-linux-arm6,
-          netclient-linux-arm5,
-        ]
-        platform: [linux/amd64, linux/amd64, linux/arm7, linux/arm6, linux/arm5]
-    runs-on: ubuntu-latest
+        build: [
+          {name: netclient-linux-amd64, platform: linux/amd64, os: ubuntu-latest},
+          {name: netclient-linux-arm64, platform: linux/arm64, os: ubuntu-latest},
+          {name: netclient-linux-arm7, platform: linux/arm7, os: ubuntu-latest},
+          {name: netclient-linux-arm6, platform: linux/arm6, os: ubuntu-latest},
+          {name: netclient-linux-arm5, platform: linux/arm5, os: ubuntu-latest},
+          {name: netclient-darwin-amd64, platform: darwin/amd64, os: macos-latest},
+          {name: netclient-darwin-arm64, platform: darwin/arm64, os: macos-latest},
+          {name: netclient-windows-amd64, platform: windows/amd64, os: windows-latest},
+          ]
+    runs-on: ${{ matrix.build.os }}
     steps:
       - uses: actions/checkout@v3
         with:
           submodules: recursive
       - uses: dAppServer/wails-build-action@v2
         with:
-          build-name: ${{ matrix.name }}
-          build-platform: ${{ matrix.platform }}
-          go-version: 1.19
-          node-version: 19.x
-
-  darwin-gui-builds:
-    strategy:
-      fail-fast: false
-      matrix:
-        name: [
-          netclient-darwin-amd64,
-          netclient-darwin-arm64,
-        ]
-        platform: [darwin/amd64, darwin/arm64]
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          submodules: recursive
-      - uses: dAppServer/wails-build-action@v2
-        with:
-          build-name: ${{ matrix.name }}
-          build-platform: ${{ matrix.platform }}
-          go-version: 1.19
-          node-version: 19.x
-
-  windows-gui-builds:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          submodules: recursive
-      - uses: dAppServer/wails-build-action@v2
-        with:
-          build-name: netclient-windows-amd64
-          build-platform: windows/amd64
+          build-name: ${{ matrix.build.name }}
+          build-platform: ${{ matrix.build.platform }}
           go-version: 1.19
           node-version: 19.x
 
