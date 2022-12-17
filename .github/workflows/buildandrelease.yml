@@ -14,25 +14,27 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        build: [
-          {name: netclient-linux-amd64, platform: linux/amd64, os: ubuntu-latest},
-          {name: netclient-linux-arm64, platform: linux/arm64, os: ubuntu-latest},
-          {name: netclient-linux-arm7, platform: linux/arm7, os: ubuntu-latest},
-          {name: netclient-linux-arm6, platform: linux/arm6, os: ubuntu-latest},
-          {name: netclient-linux-arm5, platform: linux/arm5, os: ubuntu-latest},
-          {name: netclient-darwin-amd64, platform: darwin/amd64, os: macos-latest},
-          {name: netclient-darwin-arm64, platform: darwin/arm64, os: macos-latest},
-          {name: netclient-window-arm64, platform: windows/amd64, os: windows-latest},
+        name: [
+          netclient-linxu-amd64, 
+          netclient-linux-arm64, 
+          netclient-linux-arm7,
+          netclient-linux-arm6,
+          netclient-linux-arm5,
+          netclient-darwin-amd64,
+          netclient-darwin-arm64,
+          netclient-windows-amd64
         ]
-    runs-on: ${{ matrix-build-os }}
+        platform: [linux/amd64, linux/amd64, linux/arm7, linux/arm6, linux/arm5, darwin/amd64, darwin/arm64, windows/amd64]
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix-os }}
     steps:
       - uses: actions/checkout@v3
         with:
           submodules: recursive
       - uses: dAppServer/wails-build-action@v2
         with:
-          build-name: ${{ matrix.build.name }}
-          build-platform: ${{ matrix.build.platform }}
+          build-name: ${{ matrix.name }}
+          build-platform: ${{ matrix.platform }}
           go-version: 1.19
           node-version: 19.x
 
