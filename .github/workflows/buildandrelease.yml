@@ -21,8 +21,8 @@ jobs:
           {name: netclient-linux-arm7, platform: linux/arm7, os: ubuntu-latest},
           {name: netclient-linux-arm6, platform: linux/arm6, os: ubuntu-latest},
           {name: netclient-linux-arm5, platform: linux/arm5, os: ubuntu-latest},
-          {name: netclient-darwin-amd64, platform: darwin/amd64, os: macos-latest},
-          {name: netclient-darwin-arm64, platform: darwin/arm64, os: macos-latest},
+          {name: netclient-darwin-amd64.app, platform: darwin/amd64, os: macos-latest},
+          {name: netclient-darwin-arm64.app, platform: darwin/arm64, os: macos-latest},
           {name: netclient-windows-amd64, platform: windows/amd64, os: windows-latest},
           ]
     runs-on: ${{ matrix.build.os }}
@@ -136,7 +136,7 @@ jobs:
 #          echo "NETMAKER_VERSION=${TAG}"  >> $GITHUB_ENV
 #          echo "PACKAGE_VERSION=${VERSION}" >> $GITHUB_ENV
 #      - name: Setup go
-#        uses: actions/setup-go@v2
+#        uses: actions/setup-go@v3
 #        with:
 #          go-version: 1.19
 #      - name: Build
@@ -235,7 +235,7 @@ jobs:
 #          echo "NETMAKER_VERSION=${TAG}"  >> $GITHUB_ENV
 #          echo "PACKAGE_VERSION=${VERSION}" >> $GITHUB_ENV
 #      - name: Setup go
-#        uses: actions/setup-go@v2
+#        uses: actions/setup-go@v3
 #        with:
 #          go-version: 1.19
 #      - name: Build
@@ -297,7 +297,7 @@ jobs:
 #          echo "NETMAKER_VERSION=${TAG}"  >> $GITHUB_ENV
 #          echo "PACKAGE_VERSION=${VERSION}" >> $GITHUB_ENV
 #      - name: Setup go
-#        uses: actions/setup-go@v2
+#        uses: actions/setup-go@v3
 #        with:
 #          go-version: 1.19
 #      - name: Build
@@ -359,11 +359,13 @@ jobs:
           echo "NETMAKER_VERSION=${TAG}"  >> $GITHUB_ENV
           echo "PACKAGE_VERSION=${VERSION}" >> $GITHUB_ENV
       - name: Setup go
-        uses: actions/setup-go@v2
+        uses: actions/setup-go@v3
         with:
           go-version: 1.19
       - name: Build
         run: |
+          mkdir gui/frontend/dist
+          touch gui/frontend/dist/index.html
           env CGO_ENABLED=0 GOOS=freebsd GOARCH=amd64 go build -tags headless -ldflags="-s -w -X 'main.version=${NETMAKER_VERSION}'" -o build/netclient-freebsd/netclient .
           env CGO_ENABLED=0 GOOS=freebsd GOARCH=arm GOARM=5 go build -tags headless -ldflags="-s -w -X 'main.version=${NETMAKER_VERSION}'" -o build/netclient-freebsd-arm5/netclient .
           env CGO_ENABLED=0 GOOS=freebsd GOARCH=arm GOARM=6 go build -tags headless -ldflags="-s -w -X 'main.version=${NETMAKER_VERSION}'" -o build/netclient-freebsd-arm6/netclient .
