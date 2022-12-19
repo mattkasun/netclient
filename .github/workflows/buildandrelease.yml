@@ -40,19 +40,22 @@ jobs:
   version:
     runs-on: ubuntu-latest
     outputs:
-      tag: ${{ steps.echo.outputs.tag }}
-      version: ${{ steps.echo.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
     steps:
       - name: Get Version Number
+        id: version
         run: |
           if [[ -n "${{ github.event.inputs.version }}" ]]; then
-            NETMAKER_VERSION=${{ github.event.inputs.version }}
+            NETCLIENT_VERSION=${{ github.event.inputs.version }}
           else
-            NETMAKER_VERSION=$(curl -fsSL https://api.github.com/repos/gravitl/netmaker/tags | grep 'name' | head -1 | cut -d'"' -f4)
+            NETCLIENT_VERSION=$(curl -fsSL https://api.github.com/repos/mattkasun/netclient/tags | grep 'name' | head -1 | cut -d'"' -f4)
           fi
-          echo "NETMAKER_VERSION=${NETMAKER_VERSION}" >> $GITHUB_ENV
+          echo "::set-output name=tag::${{ NETMAKER_VERSION }}
+          echo "NETCLIENT_VERSION=${NETCLIENT_VERSION}" >> $GITHUB_ENV
           # remove everything but digits and . for package (deb, rpm, etc) versions
-          PACKAGE_VERSION=$(echo ${NETMAKER_VERSION} | tr -cd '[:digit:].')
+          PACKAGE_VERSION=$(echo ${NETCLIENT_VERSION} | tr -cd '[:digit:].')
+          echo "::set-output name=verion::${{ PACKAGE_VERSION }}
           echo "PACKAGE_VERSION=${PACKAGE_VERSION}" >> $GITHUB_ENV
 
 #  netclient-x86:
