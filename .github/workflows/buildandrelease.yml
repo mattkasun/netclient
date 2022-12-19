@@ -51,12 +51,10 @@ jobs:
           else
             NETCLIENT_VERSION=$(curl -fsSL https://api.github.com/repos/mattkasun/netclient/tags | grep 'name' | head -1 | cut -d'"' -f4)
           fi
-          echo "::set-output name=tag::${{ NETMAKER_VERSION }}
-          echo "NETCLIENT_VERSION=${NETCLIENT_VERSION}" >> $GITHUB_ENV
+          echo "NETCLIENT_VERSION=${NETCLIENT_VERSION}" >> $GITHUB_OUTPUT
           # remove everything but digits and . for package (deb, rpm, etc) versions
           PACKAGE_VERSION=$(echo ${NETCLIENT_VERSION} | tr -cd '[:digit:].')
-          echo "::set-output name=verion::${{ PACKAGE_VERSION }}
-          echo "PACKAGE_VERSION=${PACKAGE_VERSION}" >> $GITHUB_ENV
+          echo "PACKAGE_VERSION=${PACKAGE_VERSION}" >> $GITHUB_OUTPUT
 
 #  netclient-x86:
 #    runs-on: ubuntu-latest
