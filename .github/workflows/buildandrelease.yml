@@ -21,8 +21,8 @@ jobs:
           # {name: netclient-linux-arm7, platform: linux/arm7, os: ubuntu-latest},
           # {name: netclient-linux-arm6, platform: linux/arm6, os: ubuntu-latest},
           # {name: netclient-linux-arm5, platform: linux/arm5, os: ubuntu-latest},
-          {name: netclient-darwin-amd64.app, platform: darwin/amd64, os: macos-latest},
-          {name: netclient-darwin-arm64.app, platform: darwin/arm64, os: macos-latest},
+          # {name: netclient-darwin-amd64.app, platform: darwin/amd64, os: macos-latest},
+          {name: netclient-darwin, platform: darwin/universal, os: macos-latest},
           {name: netclient-windows-amd64, platform: windows/amd64, os: windows-latest},
           ]
     runs-on: ${{ matrix.build.os }}
