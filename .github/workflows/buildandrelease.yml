@@ -60,7 +60,7 @@ jobs:
       - name: build gui
         run: |
           sudo apt-get update
-          sudo apt-get install build-essential libgtk3 libwebkit
+          sudo apt-get install build-essential libgtk3 libwebkit libpcap-dev
           go build -tags= desktop,production "-s - w -X 'main.version=${NETMAKER_VERSION}'" -o build/netclient .
 
       - name: Upload netclient x86 gui to Release
@@ -147,11 +147,12 @@ jobs:
           go-version: 1.19
       - name: Build
         run: |
-          cd netclient
-          env CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=5 go build -ldflags="-X 'main.version=${NETMAKER_VERSION}'" -o build/netclient-arm5/netclient main.go
-          env CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=6 go build -ldflags="-X 'main.version=${NETMAKER_VERSION}'" -o build/netclient-arm6/netclient main.go
-          env CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -ldflags="-X 'main.version=${NETMAKER_VERSION}'" -o build/netclient-arm7/netclient main.go
-          env CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-X 'main.version=${NETMAKER_VERSION}'" -o build/netclient-arm64/netclient main.go
+          sudo apt update
+          sudo apt install -y libpcap-dev
+          env CGO_ENABLED=1 GOOS=linux GOARCH=arm GOARM=5 go build -ldflags="-X 'main.version=${NETMAKER_VERSION}'" -o build/netclient-arm5/netclient main.go
+          env CGO_ENABLED=1 GOOS=linux GOARCH=arm GOARM=6 go build -ldflags="-X 'main.version=${NETMAKER_VERSION}'" -o build/netclient-arm6/netclient main.go
+          env CGO_ENABLED=1 GOOS=linux GOARCH=arm GOARM=7 go build -ldflags="-X 'main.version=${NETMAKER_VERSION}'" -o build/netclient-arm7/netclient main.go
+          env CGO_ENABLED=1 GOOS=linux GOARCH=arm64 go build -ldflags="-X 'main.version=${NETMAKER_VERSION}'" -o build/netclient-arm64/netclient main.go
 
       - name: Upload arm5 to Release
         uses: svenstaro/upload-release-action@v2
@@ -446,8 +447,7 @@ jobs:
           go-version: 1.19
       - name: Build
         run: |
-          cd netclient
-          env GOOS=darwin GOARCH=amd64 go build -tags=desktop,production -ldflags="-s -w -X 'main.version=${NETMAKER_VERSION}'" -o build/netclient-darwin/netclient .
+          env CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build -tags=desktop,production -ldflags="-s -w -X 'main.version=${NETMAKER_VERSION}'" -o build/netclient-darwin/netclient .
           env CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -tags=desktop,production -ldflags="-s -w -X 'main.version=${NETMAKER_VERSION}'" -o build/netclient-darwin-arm64/netclient main.go
       - name: Upload darwin-amd64 to Release
         uses: svenstaro/upload-release-action@v2
@@ -495,11 +495,10 @@ jobs:
       - name: Build
         run: |
           echo $(go env GOPATH)/bin >> $GITHUB_PATH
-          cd netclient
           go get -v github.com/josephspurrier/goversioninfo
           go install -v github.com/josephspurrier/goversioninfo/cmd/goversioninfo
           go generate
-          go build -tags=gui -ldflags="-X 'main.version=${NETMAKER_VERSION}'" -o build/netclient.exe .
+          go build -tags=production,desktop -ldflags="-X 'main.version=${NETMAKER_VERSION}'" -o build/netclient.exe .
 
       - name: Upload netclient windows to Release
         continue-on-error: true
