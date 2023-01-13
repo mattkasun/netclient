@@ -10,21 +10,50 @@ on:
     types: [published]
 
 jobs:
+
+  gui-builds:
+    strategy:
+      fail-fast: false
+      matrix:
+        build: [
+          {name: netclient-linux-amd64, platform: linux/amd64, os: ubuntu-latest},
+          # {name: netclient-linux-arm64, platform: linux/arm64, os: ubuntu-latest},
+          # {name: netclient-linux-arm7, platform: linux/arm7, os: ubuntu-latest},
+          # {name: netclient-linux-arm6, platform: linux/arm6, os: ubuntu-latest},
+          # {name: netclient-linux-arm5, platform: linux/arm5, os: ubuntu-latest},
+          # {name: netclient-darwin-amd64.app, platform: darwin/amd64, os: macos-latest},
+          {name: netclient-darwin, platform: darwin/universal, os: macos-latest},
+          {name: netclient-windows-amd64, platform: windows/amd64, os: windows-latest},
+          ]
+    runs-on: ${{ matrix.build.os }}
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+      - uses: dAppServer/wails-build-action@v2
+        with:
+          build-name: ${{ matrix.build.name }}
+          build-platform: ${{ matrix.build.platform }}
+          go-version: 1.19
+          node-version: 19.x
+
   version:
     runs-on: ubuntu-latest
     outputs:
-      tag: ${{ steps.echo.outputs.tag }}
-      version: ${{ steps.echo.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
     steps:
       - name: Get Version Number
+        id: version
         run: |
           if [[ -n "${{ github.event.inputs.version }}" ]]; then
-            NETMAKER_VERSION=${{ github.event.inputs.version }}
+            NETCLIENT_VERSION=${{ github.event.inputs.version }}
           else
-            NETMAKER_VERSION=$(curl -fsSL https://api.github.com/repos/gravitl/netmaker/tags | grep 'name' | head -1 | cut -d'"' -f4)
+            NETCLIENT_VERSION=$(curl -fsSL https://api.github.com/repos/mattkasun/netclient/tags | grep 'name' | head -1 | cut -d'"' -f4)
           fi
-          echo "NETMAKER_VERSION=${NETMAKER_VERSION}" >> $GITHUB_ENV
+          echo "NETCLIENT_VERSION=${NETCLIENT_VERSION}" >> $GITHUB_OUTPUT
           # remove everything but digits and . for package (deb, rpm, etc) versions
+
           PACKAGE_VERSION=$(echo ${NETMAKER_VERSION} | tr -cd '[:digit:].')
           echo "PACKAGE_VERSION=${PACKAGE_VERSION}" >> $GITHUB_ENV
       - name: Echo
@@ -354,6 +383,7 @@ jobs:
           prerelease: true
           asset_name: netclient-linux-mips-softfloat-upx
 
+
   netclient-freebsd:
     runs-on: ubuntu-latest
     needs: version
@@ -367,17 +397,18 @@ jobs:
           echo "NETMAKER_VERSION=${TAG}"  >> $GITHUB_ENV
           echo "PACKAGE_VERSION=${VERSION}" >> $GITHUB_ENV
       - name: Setup go
-        uses: actions/setup-go@v2
+        uses: actions/setup-go@v3
         with:
           go-version: 1.19
       - name: Build
         run: |
-          cd netclient
-          env CGO_ENABLED=0 GOOS=freebsd GOARCH=amd64 go build -tags headless -ldflags="-X 'main.version=${NETMAKER_VERSION}'" -o build/netclient-freebsd/netclient .
-          env CGO_ENABLED=0 GOOS=freebsd GOARCH=arm GOARM=5 go build -tags headless -ldflags="-X 'main.version=${NETMAKER_VERSION}'" -o build/netclient-freebsd-arm5/netclient .
-          env CGO_ENABLED=0 GOOS=freebsd GOARCH=arm GOARM=6 go build -tags headless -ldflags="-X 'main.version=${NETMAKER_VERSION}'" -o build/netclient-freebsd-arm6/netclient .
-          env CGO_ENABLED=0 GOOS=freebsd GOARCH=arm GOARM=7 go build -tags headless -ldflags="-X 'main.version=${NETMAKER_VERSION}'" -o build/netclient-freebsd-arm7/netclient .
-            env CGO_ENABLED=0 GOOS=freebsd GOARCH=arm64 go build -tags headless -ldflags="-X 'main.version=${NETMAKER_VERSION}'" -o build/netclient-freebsd-arm64/netclient .
+          mkdir gui/frontend/dist
+          touch gui/frontend/dist/index.html
+          env CGO_ENABLED=0 GOOS=freebsd GOARCH=amd64 go build -tags headless -ldflags="-s -w -X 'main.version=${NETMAKER_VERSION}'" -o build/netclient-freebsd/netclient .
+          env CGO_ENABLED=0 GOOS=freebsd GOARCH=arm GOARM=5 go build -tags headless -ldflags="-s -w -X 'main.version=${NETMAKER_VERSION}'" -o build/netclient-freebsd-arm5/netclient .
+          env CGO_ENABLED=0 GOOS=freebsd GOARCH=arm GOARM=6 go build -tags headless -ldflags="-s -w -X 'main.version=${NETMAKER_VERSION}'" -o build/netclient-freebsd-arm6/netclient .
+          env CGO_ENABLED=0 GOOS=freebsd GOARCH=arm GOARM=7 go build -tags headless -ldflags="-s -w -X 'main.version=${NETMAKER_VERSION}'" -o build/netclient-freebsd-arm7/netclient .
+          env CGO_ENABLED=0 GOOS=freebsd GOARCH=arm64 go build -tags headless -ldflags="-s -w -X 'main.version=${NETMAKER_VERSION}'" -o build/netclient-freebsd-arm64/netclient .
 
       - name: Upload freebsd to Release
         uses: svenstaro/upload-release-action@v2
@@ -428,6 +459,7 @@ jobs:
           overwrite: true
           prerelease: true
           asset_name: netclient-freebsd-arm64
+
 
   netclient-darwin:
     runs-on: macos-latest
@@ -522,3 +554,4 @@ jobs:
           repository: gravitl/netmaker-devops
           event-type: build-packages
           client-payload: '{"VERSION": "${{ env.PACKAGE_VERSION }}"}'
+
