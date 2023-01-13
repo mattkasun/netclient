@@ -75,7 +75,6 @@ jobs:
           tag: ${{ needs.version.outputs.NETMAKER_VERSION }}
           overwrite: true
           prerelease: true
-          tag: ${{ needs.version.outputs.version }}
           asset_name: netclient_${{ needs.version.outputs.version }}_amd64.deb
 
       - name: Package x86 rpm
@@ -94,7 +93,6 @@ jobs:
           tag: ${{ needs.version.outputs.version }}
           overwrite: true
           prerelease: true
-          tag: ${{ needs.version.outputs.version }}
           asset_name: netclient-${{ needs.version.outputs.version }}-1.x86_64.rpm
 
       - name: Package x86 pacman
