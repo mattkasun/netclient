@@ -47,7 +47,7 @@ jobs:
           npm ci
           npm run build
           cd ../..
-          go build --tags desktop,production  -ldflags='-s -w' . -o build/netclient
+          go build --tags desktop,production  -ldflags='-s -w' -o build/netclient .
       - name: Upload netclient x86 gui to Release
         continue-on-error: true
         uses: svenstaro/upload-release-action@v2
