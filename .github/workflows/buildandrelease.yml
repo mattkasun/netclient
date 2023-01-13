@@ -2,6 +2,10 @@ name: Build and Release
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'netclient version'
+        required: true
   release:
     types: [published]
 
@@ -17,15 +21,15 @@ jobs:
         id: version
         run: |
           if [[ -n "${{ github.event.inputs.version }}" ]]; then
-            NETCLIENT_VERSION=${{ github.event.inputs.version }}
+            VERSION=${{ github.event.inputs.version }}
           else
-            NETCLIENT_VERSION=$(curl -fsSL https://api.github.com/repos/mattkasun/netclient/tags | grep 'name' | head -1 | cut -d'"' -f4)
+            VERSION=$(curl -fsSL https://api.github.com/repos/mattkasun/netclient/tags | grep 'name' | head -1 | cut -d'"' -f4)
           fi
-          echo "version=${NETCLIENT_VERSION}" >> $GITHUB_OUTPUT
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
           # remove everything but digits and . for package (deb, rpm, etc) versions
 
-          PACKAGE_VERSION=$(echo ${NETMAKER_VERSION} | tr -cd '[:digit:].')
-          echo "tag=${PACKAGE_VERSION}" >> $GITHUB_OUTPUT
+          TAG=$(echo ${VERSION} | tr -cd '[:digit:].')
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
  
   netclient-x86:
     runs-on: ubuntu-latest
