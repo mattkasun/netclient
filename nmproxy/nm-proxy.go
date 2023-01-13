@@ -13,7 +13,7 @@ import (
 )
 
 // Start - setups the global cfg for proxy and starts the proxy server
-func Start(ctx context.Context, mgmChan chan *nm_models.PeerUpdate, stunAddr string, stunPort int, fromServer bool) {
+func Start(ctx context.Context, mgmChan chan *nm_models.HostPeerUpdate, stunAddr string, stunPort int, fromServer bool) {
 
 	if config.GetCfg().IsProxyRunning() {
 		logger.Log(1, "Proxy is running already...")
@@ -25,6 +25,7 @@ func Start(ctx context.Context, mgmChan chan *nm_models.PeerUpdate, stunAddr str
 		return
 	}
 	config.InitializeCfg()
+	defer config.GetCfg().SetProxyStatus(false)
 	config.GetCfg().SetIsHostNetwork(!fromServer)
 	config.GetCfg().SetHostInfo(stun.GetHostInfo(stunAddr, stunPort))
 	logger.Log(0, fmt.Sprintf("HOSTINFO: %+v", config.GetCfg().GetHostInfo()))

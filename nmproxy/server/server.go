@@ -41,13 +41,15 @@ func (p *ProxyServer) Close() {
 	logger.Log(1, "--------->### Shutting down Proxy.....")
 	// clean up proxy connections
 
-	for _, peerConnMap := range config.GetCfg().GetNetworkPeerMap() {
-		for _, peerConnI := range peerConnMap {
-			peerConnI.Mutex.Lock()
-			peerConnI.StopConn()
-			peerConnI.Mutex.Unlock()
-		}
-
+	for _, peerI := range config.GetCfg().GetAllProxyPeers() {
+		peerI.Mutex.Lock()
+		peerI.StopConn()
+		peerI.Mutex.Unlock()
+	}
+	for _, peerI := range config.GetCfg().GetNoProxyPeers() {
+		peerI.Mutex.Lock()
+		peerI.StopConn()
+		peerI.Mutex.Unlock()
 	}
 	config.Reset()
 	// close server connection
@@ -76,14 +78,14 @@ func (p *ProxyServer) Listen(ctx context.Context) {
 
 			if !handleNoProxyPeer(buffer[:], n, source) {
 				proxyTransportMsg := true
-				var srcPeerKeyHash, dstPeerKeyHash, network string
-				n, srcPeerKeyHash, dstPeerKeyHash, network, err = packet.ExtractInfo(buffer, n)
+				var srcPeerKeyHash, dstPeerKeyHash string
+				n, srcPeerKeyHash, dstPeerKeyHash, err = packet.ExtractInfo(buffer, n)
 				if err != nil {
 					logger.Log(2, "proxy transport message not found: ", err.Error())
 					proxyTransportMsg = false
 				}
 				if proxyTransportMsg {
-					p.proxyIncomingPacket(buffer[:], source, n, srcPeerKeyHash, dstPeerKeyHash, network)
+					p.proxyIncomingPacket(buffer[:], source, n, srcPeerKeyHash, dstPeerKeyHash)
 					continue
 				} else {
 					// unknown peer to proxy -> check if extclient and handle it
@@ -110,14 +112,12 @@ func (p *ProxyServer) handleMsgs(buffer []byte, n int, source *net.UDPAddr) {
 		if err == nil {
 			logger.Log(3, fmt.Sprintf("------->Recieved Metric Pkt: %+v, FROM:%s\n", metricMsg, source.String()))
 			_, pubKey := config.GetCfg().GetDeviceKeys()
-			network := packet.DecodeNetwork(metricMsg.NetworkEncoded)
 			if metricMsg.Sender == pubKey {
+				metric := models.Metric{}
 				latency := time.Now().UnixMilli() - metricMsg.TimeStamp
-				metric := metrics.GetMetric(network, metricMsg.Reciever.String())
 				metric.LastRecordedLatency = uint64(latency)
-				metric.ConnectionStatus = true
-				metric.TrafficRecieved += float64(n) / (1 << 20)
-				metrics.UpdateMetric(network, metricMsg.Reciever.String(), &metric)
+				metric.TrafficRecieved = int64(n)
+				metrics.UpdateMetricByPeer(metricMsg.Reciever.String(), &metric, false)
 
 			} else if metricMsg.Reciever == pubKey {
 				// proxy it back to the sender
@@ -134,14 +134,9 @@ func (p *ProxyServer) handleMsgs(buffer []byte, n int, source *net.UDPAddr) {
 					logger.Log(0, "Failed to send metric packet to remote: ", err.Error())
 				}
 
-				metric := metrics.GetMetric(network, metricMsg.Sender.String())
-				metric.ConnectionStatus = true
-				metric.TrafficRecieved += float64(n) / (1 << 20)
-				metrics.UpdateMetric(network, metricMsg.Sender.String(), &metric)
-
 			} else {
 				// metric packet needs to be relayed
-				if config.GetCfg().IsRelay(network) {
+				if config.GetCfg().IsRelay() {
 					var srcPeerKeyHash, dstPeerKeyHash string
 					if metricMsg.Reply == 1 {
 						dstPeerKeyHash = models.ConvPeerKeyToHash(metricMsg.Sender.String())
@@ -162,9 +157,8 @@ func (p *ProxyServer) handleMsgs(buffer []byte, n int, source *net.UDPAddr) {
 		if err == nil {
 			switch msg.Action {
 			case packet.UpdateListenPort:
-				network := packet.DecodeNetwork(msg.NetworkEncoded)
-				if peer, found := config.GetCfg().GetPeer(network, msg.Sender.String()); found {
-					if config.GetCfg().IsRelay(network) && config.GetCfg().GetDevicePubKey() != msg.Reciever {
+				if peer, found := config.GetCfg().GetPeer(msg.Sender.String()); found {
+					if config.GetCfg().IsRelay() && config.GetCfg().GetDevicePubKey() != msg.Reciever {
 						// update relay peer config
 						if peer, found := config.GetCfg().GetRelayedPeer(models.ConvPeerKeyToHash(msg.Sender.String()),
 							models.ConvPeerKeyToHash(msg.Reciever.String())); found {
@@ -179,9 +173,9 @@ func (p *ProxyServer) handleMsgs(buffer []byte, n int, source *net.UDPAddr) {
 						if peer.Config.PeerEndpoint.Port != int(msg.ListenPort) {
 							// update peer conn
 							peer.Config.PeerEndpoint.Port = int(msg.ListenPort)
-							config.GetCfg().UpdatePeer(network, &peer)
+							config.GetCfg().UpdatePeer(&peer)
 							logger.Log(1, "--------> Resetting Proxy Conn For Peer ", msg.Sender.String())
-							config.GetCfg().ResetPeer(network, peer.Key.String())
+							config.GetCfg().ResetPeer(peer.Key.String())
 							return
 						}
 					}
@@ -214,9 +208,9 @@ func (p *ProxyServer) handleMsgs(buffer []byte, n int, source *net.UDPAddr) {
 							extPeer.Endpoint = source
 							config.GetCfg().SavePeerByHash(&peerInfoHash)
 							config.GetCfg().SaveExtClientInfo(&extPeer)
-							if peerInfo, found := config.GetCfg().GetPeer(peerInfoHash.Network, peerKey); found {
+							if peerInfo, found := config.GetCfg().GetPeer(peerKey); found {
 								peerInfo.Config.PeerEndpoint = source
-								config.GetCfg().SavePeer(peerInfoHash.Network, &peerInfo)
+								config.GetCfg().SavePeer(&peerInfo)
 								// reset connection for the ext peer
 								peerInfo.ResetConn()
 							}
@@ -239,9 +233,14 @@ func handleExtClients(buffer []byte, n int, source *net.UDPAddr) bool {
 			logger.Log(1, "Failed to proxy to Wg local interface: ", err.Error())
 			//continue
 		}
-		metric := metrics.GetMetric(peerInfo.Network, peerInfo.PeerKey)
-		metric.TrafficRecieved += float64(n) / (1 << 20)
-		metrics.UpdateMetric(peerInfo.Network, peerInfo.PeerKey, &metric)
+		go func(n int, peerKey string) {
+
+			metric := models.Metric{
+				TrafficRecieved: int64(n),
+			}
+			metrics.UpdateMetricByPeer(peerKey, &metric, true)
+
+		}(n, peerInfo.PeerKey)
 		isExtClient = true
 	}
 	return isExtClient
@@ -257,9 +256,14 @@ func handleNoProxyPeer(buffer []byte, n int, source *net.UDPAddr) bool {
 		if err != nil {
 			logger.Log(1, "Failed to proxy to Wg local interface: ", err.Error())
 		}
-		metric := metrics.GetMetric(peerInfo.Config.Network, peerInfo.Key.String())
-		metric.TrafficRecieved += float64(n) / (1 << 20)
-		metrics.UpdateMetric(peerInfo.Config.Network, peerInfo.Key.String(), &metric)
+		go func(n int, peerKey string) {
+
+			metric := models.Metric{
+				TrafficRecieved: int64(n),
+			}
+			metrics.UpdateMetricByPeer(peerKey, &metric, true)
+
+		}(n, peerInfo.Config.RemoteKey.String())
 		fromNoProxyPeer = true
 	}
 	return fromNoProxyPeer
@@ -280,11 +284,11 @@ func (p *ProxyServer) relayPacket(buffer []byte, source *net.UDPAddr, n int, src
 	}
 }
 
-func (p *ProxyServer) proxyIncomingPacket(buffer []byte, source *net.UDPAddr, n int, srcPeerKeyHash, dstPeerKeyHash, network string) {
+func (p *ProxyServer) proxyIncomingPacket(buffer []byte, source *net.UDPAddr, n int, srcPeerKeyHash, dstPeerKeyHash string) {
 	var err error
 	//logger.Log(0,"--------> RECV PKT , [SRCKEYHASH: %s], SourceIP: [%s] \n", srcPeerKeyHash, source.IP.String())
 
-	if config.GetCfg().GetDeviceKeyHash() != dstPeerKeyHash && config.GetCfg().IsRelay(network) {
+	if config.GetCfg().GetDeviceKeyHash() != dstPeerKeyHash && config.GetCfg().IsRelay() {
 		p.relayPacket(buffer, source, n, srcPeerKeyHash, dstPeerKeyHash)
 		return
 	}
@@ -300,14 +304,14 @@ func (p *ProxyServer) proxyIncomingPacket(buffer []byte, source *net.UDPAddr, n 
 			//continue
 		}
 
-		go func(n int, network, peerKey string) {
+		go func(n int, peerKey string) {
 
-			metric := metrics.GetMetric(network, peerKey)
-			metric.TrafficRecieved += float64(n) / (1 << 20)
-			metric.ConnectionStatus = true
-			metrics.UpdateMetric(network, peerKey, &metric)
+			metric := models.Metric{
+				TrafficRecieved: int64(n),
+			}
+			metrics.UpdateMetricByPeer(peerKey, &metric, true)
 
-		}(n, peerInfo.Network, peerInfo.PeerKey)
+		}(n, peerInfo.PeerKey)
 		return
 
 	}
