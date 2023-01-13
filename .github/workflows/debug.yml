@@ -27,7 +27,7 @@ jobs:
           echo "version=${NETCLIENT_VERSION}" >> $GITHUB_OUTPUT
           # remove everything but digits and . for package (deb, rpm, etc) versions
 
-          PACKAGE_VERSION=$(echo ${NETMAKER_VERSION} | tr -cd '[:digit:].')
+          PACKAGE_VERSION=$(echo ${NETCLIENT_VERSION} | tr -cd '[:digit:].')
           echo "tag=${PACKAGE_VERSION}" >> $GITHUB_OUTPUT
           echo GITHUB_OUTPUT.version
           echo GITHUB_OUTPUT.tag
