@@ -8,10 +8,8 @@ import (
 
 	"github.com/gravitl/netclient/ncutils"
 	"github.com/gravitl/netclient/nmproxy/config"
-	"github.com/gravitl/netclient/nmproxy/packet"
-	"github.com/gravitl/netclient/nmproxy/peer"
-
 	"github.com/gravitl/netclient/nmproxy/models"
+	"github.com/gravitl/netclient/nmproxy/packet"
 	peerpkg "github.com/gravitl/netclient/nmproxy/peer"
 	"github.com/gravitl/netclient/nmproxy/wg"
 	"github.com/gravitl/netmaker/logger"
@@ -27,7 +25,7 @@ func getRecieverType(m *models.ProxyManagerPayload) *proxyPayload {
 }
 
 // Start - starts the proxy manager loop and listens for events on the Channel provided
-func Start(ctx context.Context, managerChan chan *nm_models.PeerUpdate) {
+func Start(ctx context.Context, managerChan chan *nm_models.HostPeerUpdate) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -47,38 +45,55 @@ func Start(ctx context.Context, managerChan chan *nm_models.PeerUpdate) {
 }
 
 // configureProxy - confgures proxy by payload action
-func configureProxy(payload *nm_models.PeerUpdate) error {
+func configureProxy(payload *nm_models.HostPeerUpdate) error {
 	var err error
 	m := getRecieverType(&payload.ProxyUpdate)
 	m.InterfaceName = ncutils.GetInterfaceName()
-	noProxy(m.Network, payload) // starts or stops the metrics collection based on host proxy setting
-	switch m.Action {
-	case models.AddNetwork:
-		err = m.addNetwork()
-	case models.DeleteNetwork:
-		m.deleteNetwork()
+	m.Peers = payload.Peers
+	wgIface, err := wg.GetWgIface(m.InterfaceName)
+	if err != nil {
+		logger.Log(1, "Failed get interface config: ", err.Error())
+		return err
+	}
 
+	// sync map with wg device config
+	// check if listen port has changed
+	if !config.GetCfg().IsIfaceNil() && wgIface.Device.ListenPort != config.GetCfg().GetInterfaceListenPort() {
+		// reset proxy
+		cleanUpInterface()
+		return nil
+	}
+	config.GetCfg().SetIface(wgIface)
+	config.GetCfg().SetPeersIDsAndAddrs(m.Server, payload.PeerIDs)
+	noProxy(payload) // starts or stops the metrics collection based on host proxy setting
+	switch m.Action {
+	case models.ProxyUpdate:
+		m.peerUpdate()
+	case models.ProxyDeleteAllPeers:
+		cleanUpInterface()
 	}
 	return err
 }
 
-func noProxy(network string, peerUpdate *nm_models.PeerUpdate) {
-	config.GetCfg().SetPeers(network, peerUpdate.PeerIDs)
+func noProxy(peerUpdate *nm_models.HostPeerUpdate) {
 	if peerUpdate.ProxyUpdate.Action != models.NoProxy && config.GetCfg().GetMetricsCollectionStatus() {
 		// stop the metrics thread since proxy is switched on for the host
 		logger.Log(0, "Stopping Metrics Thread...")
 		config.GetCfg().StopMetricsCollectionThread()
 	} else if peerUpdate.ProxyUpdate.Action == models.NoProxy && !config.GetCfg().GetMetricsCollectionStatus() {
 		ctx, cancel := context.WithCancel(context.Background())
-		go peer.StartMetricsCollectionForHostPeers(ctx)
+		go peerpkg.StartMetricsCollectionForHostPeers(ctx)
 		config.GetCfg().SetMetricsThreadCtx(cancel)
+	}
+	if peerUpdate.ProxyUpdate.Action == models.NoProxy {
+		cleanUpInterface()
 	}
 }
 
 // ProxyManagerPayload.settingsUpdate - updates the network settings in the config
 func (m *proxyPayload) settingsUpdate() (reset bool) {
-	if !m.IsRelay && config.GetCfg().IsRelay(m.Network) {
-		config.GetCfg().DeleteRelayedPeers(m.Network)
+	if !m.IsRelay && config.GetCfg().IsRelay() {
+		config.GetCfg().DeleteRelayedPeers()
 	}
 	if m.IsIngress {
 		packet.TurnOffIpFowarding()
@@ -91,12 +106,12 @@ func (m *proxyPayload) settingsUpdate() (reset bool) {
 	} else if !m.IsIngress && config.GetCfg().CheckIfRouterIsRunning() {
 		config.GetCfg().StopRouter()
 	}
-	config.GetCfg().SetRelayStatus(m.Network, m.IsRelay)
-	config.GetCfg().SetIngressGwStatus(m.Network, m.IsIngress)
-	if config.GetCfg().GetRelayedStatus(m.Network) != m.IsRelayed {
+	config.GetCfg().SetRelayStatus(m.IsRelay)
+	config.GetCfg().SetIngressGwStatus(m.IsIngress)
+	if config.GetCfg().GetRelayedStatus() != m.IsRelayed {
 		reset = true
 	}
-	config.GetCfg().SetRelayedStatus(m.Network, m.IsRelayed)
+	config.GetCfg().SetRelayedStatus(m.IsRelayed)
 	if m.IsRelay {
 		m.setRelayedPeers()
 	}
@@ -109,9 +124,8 @@ func (m *proxyPayload) setRelayedPeers() {
 	for relayedNodePubKey, relayedNodeConf := range m.RelayedPeerConf {
 		for _, peer := range relayedNodeConf.Peers {
 			if peer.Endpoint != nil {
-				peer.Endpoint.Port = models.NmProxyPort
+				//peer.Endpoint.Port = models.NmProxyPort
 				rPeer := models.RemotePeer{
-					Network:  m.Network,
 					PeerKey:  peer.PublicKey.String(),
 					Endpoint: peer.Endpoint,
 				}
@@ -120,9 +134,8 @@ func (m *proxyPayload) setRelayedPeers() {
 			}
 
 		}
-		relayedNodeConf.RelayedPeerEndpoint.Port = models.NmProxyPort
+		//relayedNodeConf.RelayedPeerEndpoint.Port = models.NmProxyPort
 		relayedNode := models.RemotePeer{
-			Network:  m.Network,
 			PeerKey:  relayedNodePubKey,
 			Endpoint: relayedNodeConf.RelayedPeerEndpoint,
 		}
@@ -131,54 +144,36 @@ func (m *proxyPayload) setRelayedPeers() {
 	}
 }
 
-func cleanUpInterface(network string) {
-	logger.Log(1, "Removing proxy configuration for: ", network)
-	peerConnMap := config.GetCfg().GetNetworkPeers(network)
+func cleanUpInterface() {
+	logger.Log(1, "cleaning up proxy peer connections")
+	peerConnMap := config.GetCfg().GetAllProxyPeers()
 	for _, peerI := range peerConnMap {
-		config.GetCfg().RemovePeer(network, peerI.Key.String())
+		config.GetCfg().RemovePeer(peerI.Key.String())
 	}
-	config.GetCfg().DeleteNetworkPeers(network)
+	noProxyPeers := config.GetCfg().GetNoProxyPeers()
+	for _, peerI := range noProxyPeers {
+		config.GetCfg().DeleteNoProxyPeer(peerI.Config.PeerEndpoint.IP.String())
+	}
 
 }
 
 // ProxyManagerPayload.processPayload - updates the peers and config with the recieved payload
 func (m *proxyPayload) processPayload() error {
-	var err error
-	var wgIface *wg.WGIface
 	if m.InterfaceName == "" {
 		return errors.New("interface cannot be empty")
-	}
-	if m.Network == "" {
-		return errors.New("network name cannot be empty")
 	}
 	if len(m.Peers) == 0 {
 		return errors.New("no peers to add")
 	}
+	gCfg := config.GetCfg()
+
 	reset := m.settingsUpdate()
 	if reset {
-		cleanUpInterface(m.Network)
-		return nil
-	}
-	gCfg := config.GetCfg()
-	wgIface, err = wg.GetWgIface(m.InterfaceName)
-	if err != nil {
-		logger.Log(1, "Failed get interface config: ", err.Error())
-		return err
-	}
-	gCfg.SetIface(wgIface)
-	if !gCfg.CheckIfNetworkExists(m.Network) {
-		logger.Log(0, "------> new network being added to proxy")
+		cleanUpInterface()
 		return nil
 	}
 
-	// sync map with wg device config
-	// check if listen port has changed
-	if wgIface.Device.ListenPort != gCfg.GetInterfaceListenPort() {
-		// reset proxy for this network
-		cleanUpInterface(m.Network)
-		return nil
-	}
-	peerConnMap := gCfg.GetNetworkPeers(m.Network)
+	peerConnMap := gCfg.GetAllProxyPeers()
 	noProxyPeerMap := gCfg.GetNoProxyPeers()
 	// check device conf different from proxy
 	// sync peer map with new update
@@ -190,11 +185,8 @@ func (m *proxyPayload) processPayload() error {
 				gCfg.DeleteExtWaitCfg(peerConn.Key.String())
 				gCfg.DeleteExtClientInfo(peerConn.Config.PeerConf.Endpoint)
 			}
-			gCfg.DeletePeerHash(peerConn.Key.String())
-			logger.Log(0, "----> Deleting Peer from proxy: ", peerConn.Key.String())
-			gCfg.RemovePeer(peerConn.Config.Network, peerConn.Key.String())
+			gCfg.RemovePeer(peerConn.Key.String())
 		}
-
 	}
 
 	// update no proxy peers map with peer update
@@ -241,6 +233,7 @@ func (m *proxyPayload) processPayload() error {
 					continue
 				}
 			}
+
 			//check if peer is being relayed
 			if currentPeer.IsRelayed != m.PeerMap[m.Peers[i].PublicKey.String()].IsRelayed {
 				logger.Log(1, "---------> peer relay status has been changed: ", currentPeer.Key.String())
@@ -249,6 +242,7 @@ func (m *proxyPayload) processPayload() error {
 				delete(peerConnMap, currentPeer.Key.String())
 				continue
 			}
+
 			// check if relay endpoint has been changed
 			if currentPeer.RelayedEndpoint != nil &&
 				m.PeerMap[m.Peers[i].PublicKey.String()].RelayedTo != nil &&
@@ -260,7 +254,7 @@ func (m *proxyPayload) processPayload() error {
 				continue
 			}
 
-			// check if proxy listen port has chnaged for the peer
+			// check if proxy listen port has changed for the peer
 			if currentPeer.Config.ListenPort != int(m.PeerMap[m.Peers[i].PublicKey.String()].PublicListenPort) &&
 				m.PeerMap[m.Peers[i].PublicKey.String()].PublicListenPort != 0 {
 				// listen port has been changed, reset conn
@@ -272,7 +266,7 @@ func (m *proxyPayload) processPayload() error {
 			}
 
 			if currentPeer.Config.RemoteConnAddr.IP.String() != m.Peers[i].Endpoint.IP.String() {
-				logger.Log(1, "----------> Resetting proxy for Peer: ", currentPeer.Key.String(), m.InterfaceName)
+				logger.Log(1, "----------> Resetting proxy for Peer: ", currentPeer.Key.String())
 				currentPeer.StopConn()
 				currentPeer.Mutex.Unlock()
 				delete(peerConnMap, currentPeer.Key.String())
@@ -281,6 +275,13 @@ func (m *proxyPayload) processPayload() error {
 			}
 			// delete the peer from the list
 			logger.Log(1, "-----------> No updates observed so deleting peer: ", m.Peers[i].PublicKey.String())
+			// peer exists and no changes observed, update network map for the peer
+			// currentPeer.NetworkSettings[m.Network] = models.Settings{
+			// 	IsRelayed: m.PeerMap[m.Peers[i].PublicKey.String()].IsRelayed,
+			// 	RelayedTo: m.PeerMap[m.Peers[i].PublicKey.String()].RelayedTo,
+			// }
+			currentPeer.ServerMap[m.Server] = struct{}{}
+			peerConnMap[currentPeer.Key.String()] = currentPeer
 			m.Peers = append(m.Peers[:i], m.Peers[i+1:]...)
 			currentPeer.Mutex.Unlock()
 			continue
@@ -296,24 +297,34 @@ func (m *proxyPayload) processPayload() error {
 				delete(noProxyPeerMap, noProxypeer.Config.PeerEndpoint.IP.String())
 				continue
 			}
+			// check if peer is not connected to proxy
+			devPeer, err := wg.GetPeer(m.InterfaceName, noProxypeer.Key.String())
+			if err == nil {
+				logger.Log(0, "---------> COMPARING ENDPOINT: DEV: %s, Proxy: %s", devPeer.Endpoint.String(), noProxypeer.Config.LocalConnAddr.String())
+				if devPeer.Endpoint.String() != noProxypeer.Config.LocalConnAddr.String() {
+					logger.Log(1, "---------> endpoint is not set to proxy: ", noProxypeer.Key.String())
+					noProxypeer.StopConn()
+					noProxypeer.Mutex.Unlock()
+					delete(noProxyPeerMap, noProxypeer.Config.PeerEndpoint.IP.String())
+					continue
+				}
+			}
+			// update network map
+			noProxypeer.ServerMap[m.Server] = struct{}{}
+			noProxyPeerMap[noProxypeer.Key.String()] = noProxypeer
 			m.Peers = append(m.Peers[:i], m.Peers[i+1:]...)
 		}
 
 	}
 
-	gCfg.UpdateNetworkPeers(m.Network, &peerConnMap)
+	gCfg.UpdateProxyPeers(&peerConnMap)
 	gCfg.UpdateNoProxyPeers(&noProxyPeerMap)
 	logger.Log(1, "CLEANED UP..........")
 	return nil
 }
 
-// ProxyManagerPayload.deleteNetwork - deletes network and the peers from proxy
-func (m *proxyPayload) deleteNetwork() {
-	cleanUpInterface(m.Network)
-}
-
-// ProxyManagerPayload.addNetwork - adds new peers to proxy
-func (m *proxyPayload) addNetwork() error {
+// ProxyManagerPayload.peerUpdate - processes the peer update
+func (m *proxyPayload) peerUpdate() error {
 
 	err := m.processPayload()
 	if err != nil {
@@ -343,7 +354,7 @@ func (m *proxyPayload) addNetwork() error {
 				continue
 			}
 			logger.Log(1, "extclient watch thread starting for: ", peerI.PublicKey.String())
-			go func(peer *wgtypes.PeerConfig, isRelayed bool, relayTo *net.UDPAddr,
+			go func(server string, peer *wgtypes.PeerConfig, isRelayed bool, relayTo *net.UDPAddr,
 				peerConf models.PeerConf, ingGwAddr string) {
 				addExtClient := false
 				commChan := make(chan *net.UDPAddr, 30)
@@ -358,7 +369,7 @@ func (m *proxyPayload) addNetwork() error {
 				defer func() {
 					if addExtClient {
 						logger.Log(1, "GOT ENDPOINT for Extclient adding peer...", extPeer.Endpoint.String())
-						peerpkg.AddNew(m.Network, &peerI, peerConf, isRelayed, relayedTo)
+						peerpkg.AddNew(server, &peerI, peerConf, isRelayed, relayedTo)
 					}
 					logger.Log(1, "Exiting extclient watch Thread for: ", peer.PublicKey.String())
 				}()
@@ -377,11 +388,11 @@ func (m *proxyPayload) addNetwork() error {
 
 				}
 
-			}(&peerI, isRelayed, relayedTo, peerConf, m.WgAddr)
+			}(m.Server, &peerI, isRelayed, relayedTo, peerConf, m.WgAddr)
 			continue
 		}
 
-		peerpkg.AddNew(m.Network, &peerI, peerConf, isRelayed, relayedTo)
+		peerpkg.AddNew(m.Server, &peerI, peerConf, isRelayed, relayedTo)
 
 	}
 	return nil

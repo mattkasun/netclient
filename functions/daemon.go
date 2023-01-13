@@ -15,6 +15,7 @@ import (
 	"github.com/gravitl/netclient/local"
 	"github.com/gravitl/netclient/ncutils"
 	"github.com/gravitl/netclient/nmproxy"
+	proxy_models "github.com/gravitl/netclient/nmproxy/models"
 	"github.com/gravitl/netclient/wireguard"
 	"github.com/gravitl/netmaker/logger"
 	"github.com/gravitl/netmaker/models"
@@ -27,7 +28,7 @@ const lastPeerUpdate = "lpu"
 
 var messageCache = new(sync.Map)
 var ServerSet = make(map[string]mqtt.Client)
-var ProxyManagerChan = make(chan *models.PeerUpdate)
+var ProxyManagerChan = make(chan *models.HostPeerUpdate, 50)
 
 type cachedMessage struct {
 	Message  string
@@ -117,6 +118,13 @@ func startGoRoutines(wg *sync.WaitGroup) context.CancelFunc {
 	nc.Create()
 	nc.Configure()
 	wireguard.SetPeers()
+	if len(config.Servers) == 0 {
+		ProxyManagerChan <- &models.HostPeerUpdate{
+			ProxyUpdate: proxy_models.ProxyManagerPayload{
+				Action: proxy_models.ProxyDeleteAllPeers,
+			},
+		}
+	}
 	for _, server := range config.Servers {
 		logger.Log(1, "started daemon for server ", server.Name)
 		wg.Add(1)
@@ -163,11 +171,7 @@ func setupMQTT(server *config.Server) error {
 		for _, node := range nodes {
 			setSubscriptions(client, &node)
 		}
-		servers := config.GetServers()
-		for _, server := range servers {
-			setHostSubscription(client, server)
-		}
-
+		setHostSubscription(client, server.Name)
 	})
 	opts.SetOrderMatters(true)
 	opts.SetResumeSubs(true)
@@ -219,10 +223,7 @@ func setupMQTTSingleton(server *config.Server) error {
 		for _, node := range nodes {
 			setSubscriptions(client, &node)
 		}
-		servers := config.GetServers()
-		for _, server := range servers {
-			setHostSubscription(client, server)
-		}
+		setHostSubscription(client, server.Name)
 
 	})
 	opts.SetOrderMatters(true)
@@ -263,15 +264,6 @@ func setSubscriptions(client mqtt.Client, node *config.Node) {
 			logger.Log(0, "network:", node.Network, "connection timeout")
 		} else {
 			logger.Log(0, "network:", node.Network, token.Error().Error())
-		}
-		return
-	}
-	logger.Log(3, fmt.Sprintf("subscribed to proxy updates  /%s/%s", node.Network, node.ID))
-	if token := client.Subscribe(fmt.Sprintf("proxy/%s/%s", node.Network, node.ID), 0, mqtt.MessageHandler(ProxyUpdate)); token.WaitTimeout(mq.MQ_TIMEOUT*time.Second) && token.Error() != nil {
-		if token.Error() == nil {
-			logger.Log(0, "###### network:", node.Network, "connection timeout")
-		} else {
-			logger.Log(0, "###### network:", node.Network, token.Error().Error())
 		}
 		return
 	}

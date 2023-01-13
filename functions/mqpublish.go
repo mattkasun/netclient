@@ -134,8 +134,7 @@ func PublishNodeUpdate(node *config.Node) error {
 	if server.Name == "" {
 		return errors.New("no server for " + node.Network)
 	}
-	oldNode := config.ConvertToNetmakerNode(node, server, config.Netclient())
-	data, err := json.Marshal(oldNode)
+	data, err := json.Marshal(node)
 	if err != nil {
 		return err
 	}
@@ -210,14 +209,13 @@ func publishMetrics(node *config.Node) {
 	}
 	nodeGET := response
 
-	metrics, err := metrics.Collect(ncutils.GetInterfaceName(), nodeGET.Node.Network, nodeGET.Node.Proxy, nodeGET.PeerIDs)
+	metrics, err := metrics.Collect(ncutils.GetInterfaceName(), node.Server, nodeGET.Node.Network, nodeGET.PeerIDs)
 	if err != nil {
 		logger.Log(0, "failed metric collection for node", config.Netclient().Name, err.Error())
 	}
 	metrics.Network = node.Network
 	metrics.NodeName = config.Netclient().Name
 	metrics.NodeID = node.ID.String()
-	metrics.IsServer = "no"
 	data, err := json.Marshal(metrics)
 	if err != nil {
 		logger.Log(0, "something went wrong when marshalling metrics data for node", config.Netclient().Name, err.Error())
