@@ -1,4 +1,4 @@
-name: Build and Release
+name: Debug
 
 on:
   workflow_dispatch:
@@ -29,6 +29,8 @@ jobs:
 
           PACKAGE_VERSION=$(echo ${NETMAKER_VERSION} | tr -cd '[:digit:].')
           echo "tag=${PACKAGE_VERSION}" >> $GITHUB_OUTPUT
+          echo GITHUB_OUTPUT.version
+          echo GITHUB_OUTPUT.tag
 
   echo:
     runs-on: ubuntu-latest
@@ -36,5 +38,5 @@ jobs:
     steps:
       - name: echo
         run: |
-          echo ${{ needs.version.ouptuts.version }}
+          echo ${{ needs.version.outputs.version }}
           echo ${{ needs.version.outputs.tag }}
