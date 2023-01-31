@@ -6,7 +6,8 @@ on:
       version:
         description: 'netclient version'
         required: true
-  push:
+  release:
+    types: [published]
 
 jobs:
 
@@ -29,8 +30,9 @@ jobs:
 
           PACKAGE_VERSION=$(echo ${NETCLIENT_VERSION} | tr -cd '[:digit:].')
           echo "tag=${PACKAGE_VERSION}" >> $GITHUB_OUTPUT
-          echo GITHUB_OUTPUT.version
-          echo GITHUB_OUTPUT.tag
+          echo $GITHUB_OUTPUT.version
+
+          echo $GITHUB_OUTPUT.tag
 
   echo:
     runs-on: ubuntu-latest
