@@ -32,9 +32,13 @@ func List(net string, long bool) {
 				"ipv6_address": node.Address6.String(),
 			}
 			if long {
-				peers, err := getNodePeers(node)
+				peers, err := GetNodePeers(node)
 				if err != nil {
 					logger.Log(1, "failed to get peers for node: ", node.ID.String(), " Err: ", err.Error())
+					continue
+				}
+				if len(peers) == 0 {
+					logger.Log(1, "no peers present on network", node.Network)
 					continue
 				}
 				entry["peers"] = make([]map[string]any, 0)
@@ -60,10 +64,15 @@ func List(net string, long bool) {
 	}
 }
 
-func getNodePeers(node config.Node) ([]wgtypes.PeerConfig, error) {
+// GetNodePeers returns the peers for a given node
+func GetNodePeers(node config.Node) ([]wgtypes.PeerConfig, error) {
 
 	server := config.GetServer(node.Server)
-	token, err := Authenticate(&node, config.Netclient())
+	host := config.Netclient()
+	if host == nil {
+		return nil, fmt.Errorf("no configured host found")
+	}
+	token, err := Authenticate(server.API, host)
 	if err != nil {
 		return nil, err
 	}
