@@ -40,7 +40,7 @@ jobs:
         with:
           go-version: 1.19
       - name: Run GoReleaser
-        uses: actions/goreleaser-action@v4
+        uses: goreleaser/goreleaser-action@v4
         with:
           args: release --clean
 
@@ -51,7 +51,7 @@ jobs:
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh/
-          echo "$SSH_KEY" > ~/ssh/id_devops
+          echo "$SSH_KEY" > ~/.ssh/id_devops
           chmod 600 ~/.ssh/id_devops
           cat >>~/.ssh/confg << END
           Host *.clustercat.com
@@ -102,9 +102,8 @@ jobs:
           go-version: 1.19
       - name: Build
         run: |
-          cd netclient
-          env GOOS=darwin GOARCH=amd64 go build -tags=desktop,production -ldflags="-s -w -X 'main.version=${NETMAKER_VERSION}'" -o build/netclient-darwin/netclient .
-          env CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -tags=desktop,production -ldflags="-s -w -X 'main.version=${NETMAKER_VERSION}'" -o build/netclient-darwin-arm64/netclient main.go
+          env CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -tags=desktop,production -ldflags="-s -w" -o build/netclient-darwin/netclient .
+          env CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -tags=desktop,production -ldflags="-s -w" -o build/netclient-darwin-arm64/netclient .
       - name: Upload darwin-amd64 to Release
         uses: svenstaro/upload-release-action@v2
         with:
