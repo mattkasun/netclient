@@ -43,6 +43,8 @@ jobs:
         uses: goreleaser/goreleaser-action@v4
         with:
           args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   netclient-freebsd:
     runs-on: ubuntu-latest
