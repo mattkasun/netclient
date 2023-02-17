@@ -36,7 +36,7 @@ jobs:
         run: |
           git switch -c release_${{ github.event.inputs.version }}
       - name: create pre-release
-        uses: ncipoloo/release-action@v1
+        uses: ncipollo/release-action@v1
         with:
           tag: ${{ github.events.inputs.version }}
           prerelease: ${{ github.events.inputs.prerelease}}
