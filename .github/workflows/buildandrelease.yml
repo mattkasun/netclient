@@ -32,6 +32,7 @@ jobs:
           # remove everything but digits and . for package (deb, rpm, etc) versions
           PACKAGE_VERSION=$(echo ${NETMAKER_VERSION} | tr -cd '[:digit:].')
           echo "PACKAGE_VERSION=${PACKAGE_VERSION}" >> $GITHUB_OUTPUT
+          echo "version: ${ NETMAKER_VERSON}, package_version: ${ PACKAGE_VERSION }"
 
   linux-headless:
     runs-on: ubuntu-latest

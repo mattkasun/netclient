@@ -44,7 +44,7 @@ jobs:
         with:
           tag: ${{ github.event.inputs.version }}
           prerelease: ${{ github.event.inputs.prerelease}}
-  call-buildandrelease:
+  release_assets:
     needs: Release
     if: ${{ github.event.inputs.prerelease }} == "false"
     uses: ./.github/workflows/buildandrelease.yml
