@@ -1,4 +1,4 @@
-Name: Release
+name: Release
 
 on:
   workflow_dispatch:
@@ -29,17 +29,30 @@ jobs:
           git config user.emaail "info@netmaker.io"
       - name: fix go mod
         run: |
-          go get github.com/gravitl/netmaker@latest
+          go get github.com/gravitl/netmaker@${{ github.event.inputs.version }}
           go mod tidy
-          git commit -am 'use netmaker@latest'
+          git commit -am 'use netmaker@${{ github.event.inputs.version }}'
       - name: create release Branch
         run: |
           git switch -c release_${{ github.event.inputs.version }}
-      - name: create pre-release
-        uses: ncipoloo/release-action@v1
+          if git tag --list | grep ${{ github.event.inputs.version }}; then
+          git tag -d ${{ github.event.inputs.version }}
+          fi
+          git tag ${{ github.event.inputs.version }}
+          git push origin release_${{ github.event.inputs.version }}
+      - name: create release
+        uses: ncipollo/release-action@v1
         with:
-          tag: ${{ github.events.inputs.version }}
-          prerelease: ${{ github.events.inputs.prerelease}}
+          tag: ${{ github.event.inputs.version }}
+          prerelease: ${{ github.event.inputs.prerelease}}
+  release_assets:
+    needs: Release
+    if: ${{ github.event.inputs.prerelease }} == "false"
+    uses: ./.github/workflows/buildandrelease.yml
+    with:
+      version: ${{ github.event.inputs.version }}
+    secrets: inherit
+
 
 
 
