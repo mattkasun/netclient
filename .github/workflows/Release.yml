@@ -29,19 +29,19 @@ jobs:
           git config user.emaail "info@netmaker.io"
       - name: fix go mod
         run: |
-          go get github.com/gravitl/netmaker@${{ github.events.inputs.version }}
+          go get github.com/gravitl/netmaker@${{ github.event.inputs.version }}
           go mod tidy
-          git tag -d ${{ github.events.inputs.version }}
-          git tag {{ github.events.inputs.version }}
-          git commit -am 'use netmaker@${{ github.events.inputs.version }}'
+          git tag -d ${{ github.event.inputs.version }}
+          git tag {{ github.event.inputs.version }}
+          git commit -am 'use netmaker@${{ github.event.inputs.version }}'
       - name: create release Branch
         run: |
-          git switch -c release_${{ github.events.inputs.version }}
+          git switch -c release_${{ github.event.inputs.version }}
       - name: create pre-release
         uses: ncipollo/release-action@v1
         with:
-          tag: ${{ github.events.inputs.version }}
-          prerelease: ${{ github.events.inputs.prerelease}}
+          tag: ${{ github.event.inputs.version }}
+          prerelease: ${{ github.event.inputs.prerelease}}
 
 
 
