@@ -47,8 +47,10 @@ jobs:
   call-buildandrelease:
     if: ${{ github.event.inputs.prerelease }} == "false"
     uses: ./.github/workflows/buildandrelease.yml
-    secrets:
+    with:
       version: ${{ github.event.inputs.version }}
+    secrets: inherit
+
 
 
 
