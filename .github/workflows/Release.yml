@@ -1,0 +1,45 @@
+Name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "new version number"
+        required: true
+      prerelease:
+        description: "is this a prerelease"
+        required: true
+        type: boolean
+
+jobs:
+  Release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: create branch
+        uses: actions/checkout@v3
+        with:
+          ref: develop
+      - name: setup go
+        uses: actions/setup-go@v3
+        with:
+          go-version: 1.19
+      - name: setup git
+        run: |
+          git config user.name "Github Actions"
+          git config user.emaail "info@netmaker.io"
+      - name: fix go mod
+        run: |
+          go get github.com/gravitl/netmaker@latest
+          go mod tidy
+          git commit -am 'use netmaker@latest'
+      - name: create release Branch
+        run: |
+          git switch -c release_${{ github.event.inputs.version }}
+      - name: create pre-release
+        uses: ncipoloo/release-action@v1
+        with:
+          tag: ${{ github.events.inputs.version }}
+          prerelease: ${{ github.events.inputs.prerelease}}
+
+
+
