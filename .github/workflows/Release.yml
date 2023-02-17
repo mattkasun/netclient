@@ -39,6 +39,7 @@ jobs:
           git tag -d ${{ github.event.inputs.version }}
           fi
           git tag ${{ github.event.inputs.version }}
+          git push origin release_${{ github.event.inputs.version }}
       - name: create release
         uses: ncipollo/release-action@v1
         with:

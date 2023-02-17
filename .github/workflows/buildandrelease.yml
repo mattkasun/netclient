@@ -40,7 +40,7 @@ jobs:
     steps: 
       - name: echo
         run: |
-          echo ${{ needs.version.ouputs.version }}
+          echo ${{ needs.version.outputs.version }}
           echo ${{ needs.version.outputs.package_version }}
 
   linux-headless:
