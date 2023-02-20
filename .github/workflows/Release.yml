@@ -66,6 +66,7 @@ jobs:
   freebsd-headless:
     if: ${{ github.event.inputs.prerelease }} == "false"
     runs-on: ubuntu-latest
+    needs: Release-Branch
     steps:
       - name: build freebsd
         uses: appleboy/ssh-action@v0.1.7
