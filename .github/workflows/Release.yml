@@ -12,7 +12,7 @@ on:
         type: boolean
 
 jobs:
-  Release-Branch:
+  release:
     runs-on: ubuntu-latest
     steps:
       - name: create branch
