@@ -35,10 +35,6 @@ jobs:
       - name: create release Branch
         run: |
           git switch -c release_${{ github.event.inputs.version }}
-          if git tag --list | grep ${{ github.event.inputs.version }}; then
-          git tag -d ${{ github.event.inputs.version }}
-          fi
-          git tag ${{ github.event.inputs.version }}
           git push origin release_${{ github.event.inputs.version }}
   
   linux-headless:
@@ -51,7 +47,12 @@ jobs:
         with:
           ref: release_${{ github.event.inputs.version }}
           fetch-depth: 0
-      - run: git fetch --force --tags
+      - run: |
+          git fetch --force --tags
+          if git tag --list | grep ${{ github.event.inputs.version }}; then
+          git tag -d ${{ github.event.inputs.version }}
+          fi
+          git tag ${{ github.event.inputs.version }}
       - name: Setup go
         uses: actions/setup-go@v3
         with:
