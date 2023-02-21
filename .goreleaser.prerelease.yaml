@@ -1,0 +1,4 @@
+build:
+  skip: true
+release:
+  prerelease: true
