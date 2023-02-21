@@ -1,4 +1,4 @@
-name: Release
+name: UpgradeRelease
 
 on:
   workflow_dispatch:
@@ -6,41 +6,11 @@ on:
       version:
         description: "new version number"
         required: true
-      prerelease:
-        description: "is this a prerelease"
-        required: true
-        type: boolean
 
 jobs:
-  release:
-    runs-on: ubuntu-latest
-    steps:
-      - name: create branch
-        uses: actions/checkout@v3
-        with:
-          ref: develop
-      - name: setup go
-        uses: actions/setup-go@v3
-        with:
-          go-version: 1.19
-      - name: setup git
-        run: |
-          git config user.name "Github Actions"
-          git config user.emaail "info@netmaker.io"
-      - name: fix go mod
-        run: |
-          go get github.com/gravitl/netmaker@${{ github.event.inputs.version }}
-          go mod tidy
-          git commit -am 'use netmaker@${{ github.event.inputs.version }}'
-      - name: create release Branch
-        run: |
-          git switch -c release_${{ github.event.inputs.version }}
-          git push origin release_${{ github.event.inputs.version }}
-  
+
   linux-headless:
-    if: ${{ github.event.inputs.prerelease }} == "false"
     runs-on: ubuntu-latest
-    needs: Release-Branch
     steps:
       - name: checkout
         uses: actions/checkout@v3
@@ -49,10 +19,6 @@ jobs:
           fetch-depth: 0
       - run: |
           git fetch --force --tags
-          if git tag --list | grep ${{ github.event.inputs.version }}; then
-          git tag -d ${{ github.event.inputs.version }}
-          fi
-          git tag ${{ github.event.inputs.version }}
       - name: Setup go
         uses: actions/setup-go@v3
         with:
@@ -65,9 +31,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN  }}
         
   freebsd-headless:
-    if: ${{ github.event.inputs.prerelease }} == "false"
     runs-on: ubuntu-latest
-    needs: Release-Branch
     steps:
       - name: build freebsd
         uses: appleboy/ssh-action@v0.1.7
