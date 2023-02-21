@@ -23,6 +23,11 @@ jobs:
         run: |
           git config user.name "Github Actions"
           git config user.emaail "info@netmaker.io"
+      - name: fix go mod
+        run: |
+          go get github.com/gravitl/netmaker@${{ github.event.inputs.version }}
+          go mod tidy
+          git commit -am 'use netmaker@${{ github.event.inputs.version }}'
       - name: create release Branch
         run: |
           git switch -c release_${{ github.event.inputs.version }}
