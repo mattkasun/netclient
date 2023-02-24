@@ -8,14 +8,11 @@ on:
         required: true
   release:
     types: [published]
-  workflow_call:
-    tag:
-      type: string
-      required: true
 
 jobs:
   docker:
     runs-on: ubuntu-latest
+    if: ${{ github}}
     steps:
       - 
         name: Set tag
