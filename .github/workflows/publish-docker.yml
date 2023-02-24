@@ -10,7 +10,7 @@ on:
     types: [published]
   workflow_call:
     tag:
-      type: sting
+      type: string
       required: true
 
 jobs:
