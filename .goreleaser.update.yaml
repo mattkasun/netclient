@@ -1,2 +1,4 @@
+builds:
+  - skip: true
 release:
-  prerelease: true
+  prerelease: false
