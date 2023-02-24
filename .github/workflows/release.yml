@@ -181,7 +181,7 @@ jobs:
     with:
       tag: ${{ github.event.inputs.version }}
   
-    packages:
+  packages:
     if: ${{ github.event.inputs.prerelease == 'false' }}
     needs: release-branch
     uses: ./.github/workflows/packages.yml
