@@ -167,12 +167,12 @@ jobs:
           file: netclient_darwin_amd64
           tag: ${{ github.event.inputs.version }}
           overwrite: true
-          asset_name: netclient-darwin-amd64
+          asset_name: build/bin/netclient-darwin-amd64
       - name: upload darwin_arm64 to release
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: netclient_darwin_arm64
+          file: build/bin/netclient_darwin_arm64
           tag: ${{ github.event.inputs.version }}
           overwrite: true
           asset_name: netclient-darwin_amd64
