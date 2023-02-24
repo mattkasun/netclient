@@ -4,12 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "new version number"
+        description: "release/version to update"
         required: true
 
 jobs:
 
-  linux-headless:
+  update:
     runs-on: ubuntu-latest
     steps:
       - name: checkout
@@ -26,47 +26,16 @@ jobs:
       - name: goreleaser
         uses: goreleaser/goreleaser-action@v4
         with:
-          args: release --clean
+          args: release --clean --release-notes release.md -f .goreleaser.update.yaml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN  }}
-        
-  freebsd-headless:
-    runs-on: ubuntu-latest
-    steps:
-      - name: build freebsd
-        uses: appleboy/ssh-action@v0.1.7
-        with:
-          host: freebsd.clustercat.com
-          username: freebsd
-          key: ${{ secrets.TESTING_SSH_KEY }}
-          script: |
-            cd netclient
-            git switch release_${{ github.event.inputs.version }}
-            git restore .
-            git pull
-            go build -tags headless .
-      - name: setup ssh
-        run: |
-          mkdir -p ~/.ssh/
-          echo "$SSH_KEY" > ~/.ssh/id_devops
-          chmod 600 ~/.ssh/id_devops
-          cat >>~/.ssh/config <<END
-          Host *.clustercat.com
-            User freebsd
-            IdentityFile ~/.ssh/id_devops
-            StrictHostKeyChecking no
-          END
-        env:
-          SSH_KEY: ${{ secrets.TESTING_SSH_KEY }}
-      - name: get freebsd binary
-        run: |
-          scp freebsd@freebsd.clustercat.com:~/netclient/netclient /tmp/
-      - name: upload freebsd to release
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: /tmp/netclient
-          tag: ${{ github.event.inputs.version }}
-          overwrite: true
-          prerelease: true
-          asset_name: netclient-freebsd-amd64
+
+  packages:
+    uses: ./.github/workflows/packages.yml
+    with:
+      version: ${{ github.event.inputs.version }}
+
+  pull-request:
+    uses: ./.github/workflows/pull-request.yml
+    with:
+      version: ${{ github.event.inputs.version }}
