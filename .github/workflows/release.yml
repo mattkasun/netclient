@@ -73,7 +73,7 @@ jobs:
         
   freebsd-headless:
     runs-on: ubuntu-latest
-    needs: belease-branch
+    needs: release-branch
     steps:
       - name: build freebsd
         uses: appleboy/ssh-action@v0.1.7
