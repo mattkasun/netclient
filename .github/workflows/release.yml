@@ -6,6 +6,10 @@ on:
       version:
         description: "new version number"
         required: true
+      prerelease:
+        required: true
+        type: boolean
+        description: Is this a pre-release
 
 jobs:
   release-branch:
@@ -22,17 +26,20 @@ jobs:
       - name: setup git
         run: |
           git config user.name "Github Actions"
-          git config user.emaail "info@netmaker.io"
+          git config user.email "info@netmaker.io"
+      - name: create release branch
+        run: |
+          git switch -c release_${{ github.event.inputs.version }}
       - name: fix go mod
         run: |
           go get github.com/gravitl/netmaker@${{ github.event.inputs.version }}
           go mod tidy
-          git commit -am 'use netmaker@${{ github.event.inputs.version }}'
-      - name: create release Branch
+          git commit -am 'update go.mod for release'
+      - name: update release Branch
         run: |
-          git switch -c release_${{ github.event.inputs.version }}
           git tag -f ${{ github.event.inputs.version }}
-          git push origin --tags release_${{ github.event.inputs.version }}
+          git push origin release_${{ github.event.inputs.version }}
+          git push origin ${{ github.event.inputs.version }}
   
   linux-headless:
     runs-on: ubuntu-latest
@@ -49,10 +56,18 @@ jobs:
         uses: actions/setup-go@v3
         with:
           go-version: 1.19
-      - name: goreleaser
+      - name: goreleaser (full release)
+        if: ${{ github.event.inputs.prerelease == 'false'}}
         uses: goreleaser/goreleaser-action@v4
         with:
-          args: release --clean
+          args: release --clean --release-notes release.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN  }}
+      - name: goreleaser (prerelease)
+        if: ${{ github.event.inputs.prerelease == 'true'}}
+        uses: goreleaser/goreleaser-action@v4
+        with:
+          args: release --clean --release-notes release.md -f .goreleaser-prerelease.yaml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN  }}
         
@@ -68,6 +83,7 @@ jobs:
           key: ${{ secrets.TESTING_SSH_KEY }}
           script: |
             cd netclient
+            git fetch
             git switch release_${{ github.event.inputs.version }}
             git restore .
             git pull
@@ -95,5 +111,86 @@ jobs:
           file: /tmp/netclient
           tag: ${{ github.event.inputs.version }}
           overwrite: true
-          prerelease: true
           asset_name: netclient-freebsd-amd64
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 19
+      - uses: actions/setup-go@v3
+        with:
+          go-version: 1.19
+      - name: build gui
+        run: |
+          cd gui/frontend
+          npm ci
+          npm run build
+          cd ../..
+          go generate
+          go build -tags desktop,production -ldflags "-w -s -H windowsgui"
+      - name: upload windows to release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: netclient.exe
+          tag: ${{ github.event.inputs.version }}
+          overwrite: true
+          asset_name: netclient-windows-amd64.exe
+
+  darwin:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 19
+      - uses: actions/setup-go@v3
+        with:
+          go-version: 1.19
+      - run: |
+          go install github.com/wailsapp/wails/v2/cmd/wails@latest 
+          ~/go/bin/wails build -platform darwin/amd64 -o netclient_darwin_amd64
+          ~/go/bin/wails build -platform darwin/arm64 -o netclient_darwin_arm64
+      - name: upload darwin/amd to release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: netclient_darwin_amd64
+          tag: ${{ github.event.inputs.version }}
+          overwrite: true
+          asset_name: netclient-darwin-amd64
+      - name: upload darwin_arm64 to release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: netclient_darwin_arm64
+          tag: ${{ github.event.inputs.version }}
+          overwrite: true
+          asset_name: netclient-darwin_amd64
+
+  docker:
+    needs: release-branch
+    uses: ./.github/workflows/publish-docker.yml
+    with:
+      tag: ${{ github.event.inputs.version }}
+  
+    packages:
+    if: ${{ github.event.inputs.prerelease == 'false' }}
+    needs: release-branch
+    uses: ./.github/workflows/packages.yml
+    with:
+      version: ${{ github.event.inputs.version }}
+
+  pull-request:
+    if: ${{ github.event.inputs.prerelease == 'false' }}
+    needs: release-branch
+    uses: ./.github/workflows/pull-request.yml
+    with:
+      version: ${{ github.event.inputs.version }}

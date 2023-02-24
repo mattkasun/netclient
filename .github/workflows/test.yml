@@ -136,4 +136,5 @@ jobs:
           npm ci
           npm run build
           cd ../..
+          go generate
           go build -tags desktop,production -ldflags "-w -s -H windowsgui"

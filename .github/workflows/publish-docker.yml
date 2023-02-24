@@ -8,6 +8,10 @@ on:
         required: true
   release:
     types: [published]
+  workflow_call:
+    tag:
+      type: sting
+      required: true
 
 jobs:
   docker:
@@ -46,8 +50,4 @@ jobs:
           context: .
           platforms: linux/amd64, linux/arm64, linux/arm/v7
           push: true
-          # change back to netclient for v0.18.0 release
-          # tags: gravitl/netclient:${{ env.TAG }}, gravitl/netclient:latest
-          tags: gravitl/new-netclient:${{ env.TAG }}, gravitl/new-netclient:latest
-          build-args: |
-            version=${{ env.TAG }}
+          tags: gravitl/netclient:${{ env.TAG }}
