@@ -10,33 +10,15 @@ on:
         required: true
         type: boolean
         description: Is this a pre-release
+  release:
+    type: [released]
 
 jobs:
-  release-branch:
+  echo:
     runs-on: ubuntu-latest
     steps:
-      - name: checkout
-        uses: actions/checkout@v3
-        with:
-          ref: develop
-      - name: setup go
-        uses: actions/setup-go@v3
-        with:
-          go-version: 1.19
-      - name: setup git
+      - name: vars
         run: |
-          git config user.name "Github Actions"
-          git config user.email "info@netmaker.io"
-      - name: create release branch
-        run: |
-          git switch -c release_${{ github.event.inputs.version }}
-      - name: fix go mod
-        run: |
-          go get github.com/gravitl/netmaker@${{ github.event.inputs.version }}
-          go mod tidy
-          git commit -am 'update go.mod for release'
-      - name: update release Branch
-        run: |
-          git tag -f ${{ github.event.inputs.version }}
-          git push origin release_${{ github.event.inputs.version }}
-          git push origin ${{ github.event.inputs.version }}
+          echo "ref" ${{ github.ref.name }}
+          echo "event" ${{ github.event }}
+
