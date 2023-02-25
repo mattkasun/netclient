@@ -11,7 +11,7 @@ on:
         type: boolean
         description: Is this a pre-release
   release:
-    type: [released]
+    types: [released]
 
 jobs:
   echo:
