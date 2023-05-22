@@ -9,7 +9,7 @@ on:
 
 jobs:
   release:
-    uses: ${{ github.repository_owner }}/devops/.github/workflows/netclientRelease.yml@master
+    uses: mattkasun/devops/.github/workflows/netclientRelease.yml@master
     with:
       version: ${{ inputs.version }}
     secrets: inherit
