@@ -6,11 +6,26 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/gravitl/netclient/nmproxy/models"
 	"github.com/gravitl/netmaker/logger"
 	nmmodels "github.com/gravitl/netmaker/models"
+	"golang.org/x/exp/slog"
 	"gortc.io/stun"
 )
+
+var (
+	StunServers = []StunServer{
+		{Domain: "stun1.netmaker.io", Port: 3478},
+		{Domain: "stun2.netmaker.io", Port: 3478},
+		{Domain: "stun1.l.google.com", Port: 19302},
+		{Domain: "stun2.l.google.com", Port: 19302},
+	}
+)
+
+// StunServer - struct to hold data required for using stun server
+type StunServer struct {
+	Domain string `json:"domain" yaml:"domain"`
+	Port   int    `json:"port" yaml:"port"`
+}
 
 // IsPublicIP indicates whether IP is public or not.
 func IsPublicIP(ip net.IP) bool {
@@ -42,18 +57,9 @@ func DoesIPExistLocally(ip net.IP) bool {
 	return false
 }
 
-// GetHostNatInfo - calls stun server for udp hole punch and fetches host info
-func GetHostNatInfo(stunList []nmmodels.StunServer, currentPublicIP string, stunPort int) (info *models.HostInfo) {
-
-	info = &models.HostInfo{
-		PublicIp: net.ParseIP(currentPublicIP),
-	}
-	// need to store results from two different stun servers to determine nat type
-	endpointList := []stun.XORMappedAddress{}
-	info.NatType = nmmodels.NAT_Types.Double
-
-	// traverse through stun servers, continue if any error is encountered
-	for _, stunServer := range stunList {
+// HolePunch - performs udp hole punching on the given port
+func HolePunch(portToStun int) (publicIP net.IP, publicPort int, natType string) {
+	for _, stunServer := range StunServers {
 		stunServer := stunServer
 		s, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", stunServer.Domain, stunServer.Port))
 		if err != nil {
@@ -62,69 +68,64 @@ func GetHostNatInfo(stunList []nmmodels.StunServer, currentPublicIP string, stun
 		}
 		l := &net.UDPAddr{
 			IP:   net.ParseIP(""),
-			Port: stunPort,
+			Port: portToStun,
 		}
-		conn, err := net.DialUDP("udp", l, s)
+		slog.Debug(fmt.Sprintf("hole punching port %d via stun server %s:%d", portToStun, stunServer.Domain, stunServer.Port))
+		publicIP, publicPort, natType, err = doStunTransaction(l, s)
 		if err != nil {
-			logger.Log(0, "failed to dial: ", err.Error())
+			logger.Log(0, "stun transaction failed: ", stunServer.Domain, err.Error())
 			continue
 		}
-		defer conn.Close()
-		c, err := stun.NewClient(conn)
-		if err != nil {
-			logger.Log(1, "failed to create stun client: ", err.Error())
-			conn.Close()
+		if publicPort == 0 || publicIP == nil || publicIP.IsUnspecified() {
 			continue
 		}
-		defer c.Close()
-		re := strings.Split(conn.LocalAddr().String(), ":")
-		info.PrivIp = net.ParseIP(re[0])
-		info.PrivPort, _ = strconv.Atoi(re[1])
-		// Building binding request with random transaction id.
-		message := stun.MustBuild(stun.TransactionID, stun.BindingRequest)
-		// Sending request to STUN server, waiting for response message.
-		if err := c.Do(message, func(res stun.Event) {
-			if res.Error != nil {
-				logger.Log(1, "0:stun error: ", res.Error.Error())
-				return
-			}
-			// Decoding XOR-MAPPED-ADDRESS attribute from message.
-			var xorAddr stun.XORMappedAddress
-			if err := xorAddr.GetFrom(res.Message); err != nil {
-				logger.Log(1, "1:stun error: ", res.Error.Error())
-				return
-			}
-			info.PublicIp = xorAddr.IP
-			info.PubPort = xorAddr.Port
-			endpointList = append(endpointList, xorAddr)
-		}); err != nil {
-			logger.Log(1, "2:stun error: ", err.Error())
-			conn.Close()
-			continue
-		}
-		if len(endpointList) > 1 {
-			info.NatType = getNatType(endpointList[:], currentPublicIP, stunPort)
-			conn.Close()
-			break
-		}
-		conn.Close()
+		break
 	}
+	slog.Debug("hole punching complete", "public ip", publicIP.String(), "public port", strconv.Itoa(publicPort))
 	return
 }
 
-// compare ports and endpoints between stun results to determine nat type
-func getNatType(endpointList []stun.XORMappedAddress, currentPublicIP string, stunPort int) string {
-	natType := nmmodels.NAT_Types.Double
-	ip1 := endpointList[0].IP
-	ip2 := endpointList[1].IP
-	port1 := endpointList[0].Port
-	port2 := endpointList[1].Port
-	if ip1.Equal(ip2) && IsPublicIP(ip1) && DoesIPExistLocally(ip1) {
-		natType = nmmodels.NAT_Types.Public
-	} else if ip1.Equal(ip2) && port1 == port2 && port1 == stunPort {
-		natType = nmmodels.NAT_Types.Symmetric
-	} else if ip1.Equal(ip2) && port1 == port2 && port1 != stunPort {
-		natType = nmmodels.NAT_Types.Asymmetric
+func doStunTransaction(lAddr, rAddr *net.UDPAddr) (publicIP net.IP, publicPort int, natType string, err error) {
+	conn, err := net.DialUDP("udp", lAddr, rAddr)
+	if err != nil {
+		logger.Log(0, "failed to dial: ", err.Error())
+		return
 	}
-	return natType
+	re := strings.Split(conn.LocalAddr().String(), ":")
+	privIp := net.ParseIP(re[0])
+	defer func() {
+		if !privIp.Equal(publicIP) {
+			natType = nmmodels.NAT_Types.BehindNAT
+		} else {
+			natType = nmmodels.NAT_Types.Public
+		}
+	}()
+	defer conn.Close()
+	c, err := stun.NewClient(conn)
+	if err != nil {
+		logger.Log(1, "failed to create stun client: ", err.Error())
+		return
+	}
+	defer c.Close()
+	// Building binding request with random transaction id.
+	message := stun.MustBuild(stun.TransactionID, stun.BindingRequest)
+	// Sending request to STUN server, waiting for response message.
+	err = c.Do(message, func(res stun.Event) {
+		if res.Error != nil {
+			logger.Log(1, "0:stun error: ", res.Error.Error())
+			return
+		}
+		// Decoding XOR-MAPPED-ADDRESS attribute from message.
+		var xorAddr stun.XORMappedAddress
+		if err := xorAddr.GetFrom(res.Message); err != nil {
+			logger.Log(1, "1:stun error: ", res.Error.Error())
+			return
+		}
+		publicIP = xorAddr.IP
+		publicPort = xorAddr.Port
+	})
+	if err != nil {
+		logger.Log(1, "2:stun error: ", err.Error())
+	}
+	return
 }

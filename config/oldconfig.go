@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/devilcove/httpclient"
 	"github.com/google/uuid"
@@ -42,7 +41,7 @@ func ReadConfig(network string) (*ClientConfig, error) {
 	}
 	home := GetNetclientPath() + "config/"
 	if ncutils.IsWindows() {
-		//for some reason windows does not use the config dir although it exists
+		// for some reason windows does not use the config dir although it exists
 		home = GetNetclientPath()
 	}
 	file := fmt.Sprintf(home + "netconfig-" + network)
@@ -67,7 +66,7 @@ func GetSystemNetworks() ([]string, error) {
 	var networks []string
 	confPath := GetNetclientPath() + "config/netconfig-*"
 	if ncutils.IsWindows() {
-		//for some reason windows does not use the config dir although it exists
+		// for some reason windows does not use the config dir although it exists
 		confPath = GetNetclientPath() + "netconfig-*"
 	}
 	files, err := filepath.Glob(confPath)
@@ -75,7 +74,7 @@ func GetSystemNetworks() ([]string, error) {
 		return nil, err
 	}
 	for _, file := range files {
-		//don't want files such as *.bak, *.swp
+		// don't want files such as *.bak, *.swp
 		if filepath.Ext(file) != "" {
 			continue
 		}
@@ -131,9 +130,7 @@ func ConvertOldNode(netmakerNode *models.LegacyNode) (*Node, *Config) {
 	node.Network = netmakerNode.Network
 	node.NetworkRange = ToIPNet(netmakerNode.NetworkSettings.AddressRange)
 	node.NetworkRange6 = ToIPNet(netmakerNode.NetworkSettings.AddressRange6)
-	node.InternetGateway = ToUDPAddr(netmakerNode.InternetGateway)
 	host.Interfaces = netmakerNode.Interfaces
-	host.ProxyEnabled = netmakerNode.Proxy
 	host.EndpointIP = net.ParseIP(netmakerNode.Endpoint)
 	node.Connected = ParseBool(netmakerNode.Connected)
 	host.ListenPort = int(netmakerNode.ListenPort)
@@ -143,7 +140,6 @@ func ConvertOldNode(netmakerNode *models.LegacyNode) (*Node, *Config) {
 	node.Network = netmakerNode.Network
 	node.NetworkRange = ToIPNet(netmakerNode.NetworkSettings.AddressRange)
 	node.NetworkRange6 = ToIPNet(netmakerNode.NetworkSettings.AddressRange6)
-	node.InternetGateway = ToUDPAddr(netmakerNode.InternetGateway)
 	host.Interfaces = netmakerNode.Interfaces
 	host.EndpointIP = net.ParseIP(netmakerNode.Endpoint)
 	node.Connected = ParseBool(netmakerNode.Connected)
@@ -151,14 +147,13 @@ func ConvertOldNode(netmakerNode *models.LegacyNode) (*Node, *Config) {
 	node.Address.Mask = node.NetworkRange.Mask
 	node.Address6.IP = net.ParseIP(netmakerNode.Address6)
 	node.Address6.Mask = node.NetworkRange6.Mask
-	node.PersistentKeepalive = time.Second * time.Duration(netmakerNode.PersistentKeepalive)
 	node.Action = netmakerNode.Action
 	node.IsEgressGateway = ParseBool(netmakerNode.IsEgressGateway)
 	node.IsIngressGateway = ParseBool(netmakerNode.IsIngressGateway)
 	host.IsStatic = ParseBool(netmakerNode.IsStatic)
 	node.DNSOn = ParseBool(netmakerNode.DNSOn)
-	//node.Peers = nodeGet.Peers
-	//add items not provided by server
+	// node.Peers = nodeGet.Peers
+	// add items not provided by server
 	return &node, host
 }
 
@@ -173,8 +168,7 @@ func ConvertOldServerCfg(cfg *models.ServerConfig) *Server {
 	server.MQID = netclient.ID
 	server.API = cfg.API
 	server.CoreDNSAddr = cfg.CoreDNSAddr
-	server.Is_EE = cfg.Is_EE
-	server.StunList = cfg.StunList
+	server.IsPro = cfg.IsPro
 	server.StunPort = cfg.StunPort
 	server.DNSMode = cfg.DNSMode
 	server.Nodes = make(map[string]bool)

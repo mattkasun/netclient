@@ -3,14 +3,15 @@ package ncutils
 
 import (
 	"bytes"
+	"crypto/md5"
 	"crypto/rand"
+	"encoding/base32"
 	"encoding/gob"
 	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net"
-	"net/http"
 	"os"
 	"os/exec"
 	"regexp"
@@ -118,48 +119,6 @@ func IsEmptyRecord(err error) bool {
 	return strings.Contains(err.Error(), NoDBRecord) || strings.Contains(err.Error(), NoDBRecords)
 }
 
-// GetPublicIP - gets public ip
-func GetPublicIP(api string) (string, error) {
-
-	iplist := []string{"https://ip.client.gravitl.com", "https://ifconfig.me", "https://api.ipify.org", "https://ipinfo.io/ip"}
-
-	//for network, ipService := range global_settings.PublicIPServices {
-	//logger.Log(3, "User provided public IP service defined for network", network, "is", ipService)
-
-	// prepend the user-specified service so it's checked first
-	//		iplist = append([]string{ipService}, iplist...)
-	//}
-	if api != "" {
-		api = "https://" + api + "/api/getip"
-		iplist = append([]string{api}, iplist...)
-	}
-
-	endpoint := ""
-	var err error
-	for _, ipserver := range iplist {
-		client := &http.Client{
-			Timeout: time.Second * 10,
-		}
-		resp, err := client.Get(ipserver)
-		if err != nil {
-			continue
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode == http.StatusOK {
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				continue
-			}
-			endpoint = string(bodyBytes)
-			break
-		}
-	}
-	if err == nil && endpoint == "" {
-		err = errors.New("public address not found")
-	}
-	return endpoint, err
-}
-
 // GetMacAddr - get's mac address
 func GetMacAddr() ([]net.HardwareAddr, error) {
 	ifas, err := net.Interfaces()
@@ -234,6 +193,16 @@ func GetFreePort(rangestart int) (int, error) {
 		return x, nil
 	}
 	return rangestart, errors.New("no free ports")
+}
+
+// IsPortFree - checks if port is free
+func IsPortFree(port int) (free bool) {
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{Port: port})
+	if err == nil {
+		free = true
+		conn.Close()
+	}
+	return
 }
 
 // GetFreeTCPPort - gets free TCP port
@@ -556,4 +525,20 @@ func RandomMacAddress() net.HardwareAddr {
 		return net.HardwareAddr{}
 	}
 	return mac
+}
+
+// RandomString - returns a random string in a charset
+func RandomString(length int) string {
+	randombytes := make([]byte, length)
+	_, err := rand.Read(randombytes)
+	if err != nil {
+		logger.Log(0, "random string", err.Error())
+		return ""
+	}
+	return base32.StdEncoding.EncodeToString(randombytes)[:length]
+}
+
+// ConvHostPassToHash - converts password to md5 hash
+func ConvHostPassToHash(hostPass string) string {
+	return fmt.Sprintf("%x", md5.Sum([]byte(hostPass)))
 }

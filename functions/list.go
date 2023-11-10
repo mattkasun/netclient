@@ -36,48 +36,43 @@ func List(net string, long bool) {
 	listOutput := []output{}
 	found := false
 	nodes := config.GetNodes()
-	for network := range nodes {
-		if network == net || net == "" {
-			found = true
-			node := nodes[network]
-			output := output{
-				Network:   node.Network,
-				Connected: node.Connected,
-				NodeID:    node.ID.String(),
-				Peers:     []peerOut{},
-			}
-			if node.Address.IP != nil {
-				output.Ipv4Addr = node.Address.String()
-			}
-			if node.Address6.IP != nil {
-				output.Ipv6Addr = node.Address6.String()
-			}
-			if long {
-				peers, err := GetNodePeers(node)
-				if err != nil {
-					logger.Log(1, "failed to get peers for node: ", node.ID.String(), " Err: ", err.Error())
-					continue
-				}
-				if len(peers) == 0 {
-					logger.Log(1, "no peers present on network", node.Network)
-					continue
-				}
-				for _, peer := range peers {
-					p := peerOut{
-						PublicKey: peer.PublicKey.String(),
-					}
-					if peer.Endpoint != nil {
-						p.Endpoint = peer.Endpoint.String()
-					}
-
-					for _, cidr := range peer.AllowedIPs {
-						p.AllowedIps = append(p.AllowedIps, cidr.String())
-					}
-					output.Peers = append(output.Peers, p)
-				}
-			}
-			listOutput = append(listOutput, output)
+	for _, node := range nodes {
+		if node.Network != net && net != "" {
+			continue
 		}
+		found = true
+		output := output{
+			Network:   node.Network,
+			Connected: node.Connected,
+			NodeID:    node.ID.String(),
+			Peers:     []peerOut{},
+		}
+		if node.Address.IP != nil {
+			output.Ipv4Addr = node.Address.String()
+		}
+		if node.Address6.IP != nil {
+			output.Ipv6Addr = node.Address6.String()
+		}
+		if long {
+			peers, err := GetNodePeers(node)
+			if err != nil {
+				logger.Log(1, "failed to get peers for node: ", node.ID.String(), " Err: ", err.Error())
+			}
+			for _, peer := range peers {
+				p := peerOut{
+					PublicKey: peer.PublicKey.String(),
+				}
+				if peer.Endpoint != nil {
+					p.Endpoint = peer.Endpoint.String()
+				}
+
+				for _, cidr := range peer.AllowedIPs {
+					p.AllowedIps = append(p.AllowedIps, cidr.String())
+				}
+				output.Peers = append(output.Peers, p)
+			}
+		}
+		listOutput = append(listOutput, output)
 	}
 	if !found {
 		fmt.Println("\nno such network")
@@ -94,6 +89,9 @@ func List(net string, long bool) {
 func GetNodePeers(node config.Node) ([]wgtypes.PeerConfig, error) {
 
 	server := config.GetServer(node.Server)
+	if server == nil {
+		return []wgtypes.PeerConfig{}, errors.New("server config not found")
+	}
 	host := config.Netclient()
 	if host == nil {
 		return nil, fmt.Errorf("no configured host found")

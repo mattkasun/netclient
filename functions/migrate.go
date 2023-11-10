@@ -2,10 +2,9 @@ package functions
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
 	"os"
-	"strconv"
+	"runtime"
 	"strings"
 
 	"github.com/devilcove/httpclient"
@@ -13,53 +12,52 @@ import (
 	"github.com/gravitl/netclient/daemon"
 	"github.com/gravitl/netclient/ncutils"
 	"github.com/gravitl/netclient/wireguard"
-	"github.com/gravitl/netmaker/logger"
 	"github.com/gravitl/netmaker/models"
+	"golang.org/x/exp/slog"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
 // Migrate update data from older versions of netclient to new format
-// TODO fix it
 func Migrate() {
+	servers := make(map[string][]models.LegacyNode)
+	slog.Debug("migration func")
 	delete := true
-	config_dir := config.GetNetclientPath()
-	if !ncutils.IsWindows() {
-		config_dir += "config"
+	hostname, err := os.Hostname()
+	if err != nil {
+		slog.Warn("set hostname", "error", err)
 	}
+	config_dir := config.GetNetclientPath() + "config/"
 	if _, err := os.Stat(config_dir); err != nil {
 		//nothing to migrate ... exiting"
 		return
 	}
-	logger.Log(0, "migration to v0.18 started")
 	networks, err := config.GetSystemNetworks()
 	if err != nil {
-		fmt.Println("error reading network data ", err.Error())
+		slog.Error("reading network data", "error", err)
 		return
 	}
 	if len(networks) == 0 { // nothing to migrate
+		slog.Warn("no networks, nothing to migrate")
 		return
 	}
-	logger.Log(0, "stopping daemon")
+	slog.Info("stopping daemon")
 	if err := daemon.Stop(); err != nil {
-		logger.Log(0, "failed to stop daemon", err.Error())
+		slog.Warn("stopping daemon failed", "error", err)
 	}
 
-	logger.Log(0, "networks to be migrated", strings.Join(networks, " "))
-	var legacyNodes = []models.LegacyNode{}
-	var servers = map[string]struct{}{}
-	var newHost models.Host
-	if config.Netclient().ListenPort == 0 {
-		config.Netclient().ListenPort = 51821
-	}
-	if config.Netclient().ProxyListenPort == 0 {
-		config.Netclient().ProxyListenPort = 51722
-	}
+	slog.Info("networks to be migrated " + strings.Join(networks, " "))
+
 	for _, network := range networks {
-		logger.Log(0, "migrating", network)
+		slog.Info("migrating " + network)
+		if err := removeHostDNS(network); err != nil {
+			slog.Error("remove host DNS", "error", err)
+		}
 		cfg, err := config.ReadConfig(network)
 		if err != nil {
-			logger.Log(0, "failed to read config for network", network, "skipping ...")
+			slog.Error("skipping network, could not read config", "network", network, "error", err)
 			continue
 		}
+		serverName := strings.Replace(cfg.Server.Server, "broker.", "", 1)
 		oldIface := cfg.Node.Interface
 		secretPath := config.GetNetclientPath() + "config/secret-" + network
 		if ncutils.IsWindows() {
@@ -67,49 +65,27 @@ func Migrate() {
 		}
 		pass, err := os.ReadFile(secretPath)
 		if err != nil {
-			logger.Log(0, "could not read secrets file", err.Error())
+			slog.Error("read secrets file", "error", err)
 			continue
 		}
 		cfg.Node.Password = string(pass)
-		legacyNodes = append(legacyNodes, cfg.Node)
-		node, netclient := config.ConvertOldNode(&cfg.Node)
-		node.Server = strings.Replace(cfg.Server.Server, "broker.", "", 1)
-		servers[cfg.Server.API] = struct{}{}
-		newHost, _ = config.Convert(netclient, node)
-		newHost.PublicKey = netclient.PrivateKey.PublicKey()
-		ip, err := getInterfaces()
-		if err != nil {
-			logger.Log(0, "failed to retrieve local interfaces", err.Error())
-		} else {
-			if ip != nil {
-				newHost.Interfaces = *ip
-			}
-		}
-		defaultInterface, err := getDefaultInterface()
-		if err != nil {
-			logger.Log(0, "default gateway not found", err.Error())
-		} else if defaultInterface != ncutils.GetInterfaceName() {
-			newHost.DefaultInterface = defaultInterface
-		}
+		cfg.Node.Server = serverName
 		wireguard.DeleteOldInterface(oldIface)
+		nodes := servers[serverName]
+		servers[serverName] = append(nodes, cfg.Node)
 	}
-	if newHost.ListenPort == 0 {
-		newHost.ListenPort = config.Netclient().ListenPort
-	}
-	if newHost.ProxyListenPort == 0 {
-		newHost.ProxyListenPort = config.Netclient().ProxyListenPort
-	}
-	var serversToWrite = []models.ServerConfig{}
-	var hostToWrite *models.Host
-	for k := range servers {
-		server := k
-		logger.Log(0, "migrating for server", server)
+	hostSet := false
+	for k, v := range servers {
+		//server := k
+		slog.Info("server migration", "server", k)
 		migrationData := models.MigrationData{
-			LegacyNodes: legacyNodes,
-			NewHost:     newHost,
+			HostName:    hostname,
+			Password:    v[0].Password,
+			OS:          runtime.GOOS,
+			LegacyNodes: v,
 		}
-		api := httpclient.JSONEndpoint[models.RegisterResponse, models.ErrorResponse]{
-			URL:    "https://" + server,
+		api := httpclient.JSONEndpoint[models.HostPull, models.ErrorResponse]{
+			URL:    "https://api." + k,
 			Route:  "/api/v1/nodes/migrate",
 			Method: http.MethodPost,
 			Headers: []httpclient.Header{
@@ -119,66 +95,155 @@ func Migrate() {
 				},
 			},
 			Data:          migrationData,
-			Response:      models.RegisterResponse{},
+			Response:      models.HostPull{},
 			ErrorResponse: models.ErrorResponse{},
 		}
-		migrateResponse, errData, err := api.GetJSON(models.RegisterResponse{}, models.ErrorResponse{})
+		migrateResponse, errData, err := api.GetJSON(models.HostPull{}, models.ErrorResponse{})
 		if err != nil {
-			logger.Log(0, "err migrating data", err.Error())
+			slog.Error("migration response", "error", err)
 			if errors.Is(err, httpclient.ErrStatus) {
-				logger.Log(0, "error migrating server", server, strconv.Itoa(errData.Code), errData.Message)
-				delete = false
-				continue
+				slog.Error("status error", "code", errData.Code, "message", errData.Message)
 			}
-		}
-		if !IsVersionComptatible(migrateResponse.ServerConf.Version) {
-			logger.Log(0, "incompatible server version", migrateResponse.ServerConf.Version)
 			delete = false
 			continue
 		}
-		serversToWrite = append(serversToWrite, migrateResponse.ServerConf)
-		newHost.ListenPort = migrateResponse.RequestedHost.ListenPort
-		newHost.ProxyListenPort = migrateResponse.RequestedHost.ProxyListenPort
-		if hostToWrite == nil || newHost.ListenPort != hostToWrite.ListenPort {
-			config.Netclient().ListenPort = newHost.ListenPort
-			config.Netclient().ProxyListenPort = newHost.ProxyListenPort
+		if !IsVersionComptatible(migrateResponse.ServerConfig.Version) {
+			slog.Error("incompatible server version", "server", migrateResponse.ServerConfig.Version, "client", config.Netclient().Version)
+			delete = false
+			continue
 		}
-	}
+		if len(migrateResponse.Nodes) == 0 {
+			slog.Error("no nodes returned")
+			delete = false
+			continue
+		}
+		if !hostSet {
+			slog.Info("setting host")
+			netclient := config.Netclient()
+			netclient.Host = migrateResponse.Host
+			netclient.PrivateKey = getWGPrivateKey(migrateResponse.Nodes[0].Network)
+			netclient.TrafficKeyPrivate = getOldTrafficKey(migrateResponse.Nodes[0].Network)
+			netclient.HostPass = getOldPassword(migrateResponse.Nodes[0].Network)
 
-	for i := range legacyNodes {
-		network := legacyNodes[i].Network
-		_ = removeHostDNS(network) // remove old DNS
+			if err := config.WriteNetclientConfig(); err != nil {
+				slog.Error("write config", "error", err)
+			}
+			hostSet = true
+		}
+		slog.Info("updating server config")
+		config.SaveServer(k, config.Server{
+			ServerConfig: migrateResponse.ServerConfig,
+			Name:         k,
+			MQID:         migrateResponse.Host.ID,
+		})
+		slog.Info("updating node")
+		config.SetNodes(migrateResponse.Nodes)
+		if err := config.WriteNodeConfig(); err != nil {
+			slog.Error("save node config", "error", err)
+		}
+		slog.Info("publish host update", "server", k, "update", models.UpdateHost)
+		server := config.GetServer(k)
+		if err := setupMQTTSingleton(server, true); err != nil {
+			slog.Error("mqtt setup", "error", err)
+			continue
+		}
+		if err := PublishHostUpdate(k, models.UpdateHost); err != nil {
+			slog.Error("pub host update", "server", k, "error", err)
+		}
 	}
 
 	if delete {
-		logger.Log(3, "removing old config files")
-		if err := os.RemoveAll(config.GetNetclientPath()); err != nil {
-			logger.Log(0, "failed to delete old configuration files ", err.Error())
-		}
-	}
-
-	for i := range serversToWrite {
-		serverValue := serversToWrite[i]
-		config.UpdateServerConfig(&serverValue)
-		newServerConfig := config.GetServer(serverValue.Server)
-		config.UpdateServer(serverValue.Server, *newServerConfig)
-		if err := config.SaveServer(serverValue.Server, *newServerConfig); err != nil {
-			logger.Log(0, "failed to save server", err.Error())
+		if ncutils.IsWindows() {
+			moveWindowsFiles()
 		} else {
-			logger.Log(0, "saved server", serverValue.Server)
+			slog.Info("removing old config files")
+			if err := os.Rename(config.GetNetclientPath()+"/config", config.GetNetclientPath()+"/config.old"); err != nil {
+				//if err := os.RemoveAll(config.GetNetclientPath()); err != nil {
+				slog.Error("deleting config files", "error", err)
+			}
 		}
-	}
-
-	if config.Netclient().ListenPort == 0 {
-		config.Netclient().ListenPort = 51821
-	}
-	if config.Netclient().ProxyListenPort == 0 {
-		config.Netclient().ProxyListenPort = 51722
-	}
-
-	if err := config.WriteNetclientConfig(); err != nil {
-		logger.Log(0, "error saving netclient config during migrate", err.Error())
 	}
 
 	_ = daemon.Restart()
+}
+
+func getWGPrivateKey(network string) wgtypes.Key {
+	keypath := config.GetNetclientPath() + "config/wgkey-" + network
+	if ncutils.IsWindows() {
+		keypath = config.GetNetclientPath() + "wgkey-" + network
+	}
+	data, err := os.ReadFile(keypath)
+	if err != nil {
+		slog.Error("read wireguard key", "error", err)
+		return wgtypes.Key{}
+	}
+	key, err := wgtypes.ParseKey(string(data))
+	if err != nil {
+		slog.Error("parse key", "error", err)
+		return wgtypes.Key{}
+	}
+	return key
+}
+
+func getOldTrafficKey(network string) []byte {
+	trafficpath := config.GetNetclientPath() + "config/traffic-" + network
+	if ncutils.IsWindows() {
+		trafficpath = config.GetNetclientPath() + "traffic-" + network
+	}
+	data, err := os.ReadFile(trafficpath)
+	if err != nil {
+		slog.Error("read old traffic key", "error", err)
+	}
+	return data
+}
+
+func getOldPassword(network string) string {
+	passpath := config.GetNetclientPath() + "config/secret-" + network
+	if ncutils.IsWindows() {
+		passpath = config.GetNetclientPath() + "secret-" + network
+	}
+	data, err := os.ReadFile(passpath)
+	if err != nil {
+		slog.Error("read password", "error", err)
+	}
+	return string(data)
+}
+
+func moveWindowsFiles() {
+	//move all v0.17.1 config files to config dir so that it is the same as other os's
+	path := config.GetNetclientPath()
+	configPath := path + "config.old"
+	if err := os.MkdirAll(configPath, 0755); err != nil {
+		slog.Error("mkdir", "error", err)
+		return
+	}
+	dir, err := os.ReadDir(path)
+	if err != nil {
+		slog.Error("read dir", "error", err)
+		return
+	}
+	for _, entry := range dir {
+		if strings.Contains(entry.Name(), "netconfig-") {
+			if err := os.Rename(path+entry.Name(), configPath+"\\"+entry.Name()); err != nil {
+				slog.Error("rename netconfig", "error", err)
+			}
+		}
+		if strings.Contains(entry.Name(), "secret-") {
+			if err := os.Rename(path+entry.Name(), configPath+"\\"+entry.Name()); err != nil {
+				slog.Error("rename secret", "error", err)
+			}
+		}
+		if strings.Contains(entry.Name(), "traffic-") {
+			if err := os.Rename(path+entry.Name(), configPath+"\\"+entry.Name()); err != nil {
+				slog.Error("rename traffic", "error", err)
+			}
+		}
+		if strings.Contains(entry.Name(), "wgkey-") {
+			if err := os.Rename(path+entry.Name(), configPath+"\\"+entry.Name()); err != nil {
+				slog.Error("rename wgkey", "error", err)
+			}
+		}
+	}
+	os.Remove(path + "config")
+	slog.Info("old config files backed up")
 }

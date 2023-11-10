@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log"
 	"os"
+	"syscall"
 
 	"github.com/gravitl/netclient/config"
 	"github.com/gravitl/netclient/ncutils"
@@ -15,11 +16,13 @@ const MacExecDir = "/usr/local/bin/"
 
 // install- Creates a daemon service from the netclient under LaunchAgents for MacOS
 func install() error {
+	stop()
 	binarypath, err := os.Executable()
 	if err != nil {
 		return err
 	}
 	if ncutils.FileExists(MacExecDir + "netclient") {
+		os.Remove(MacExecDir + "netclient")
 		logger.Log(0, "updating netclient binary in", MacExecDir)
 	}
 	if err := ncutils.Copy(binarypath, MacExecDir+"netclient"); err != nil {
@@ -29,8 +32,7 @@ func install() error {
 	if err := createMacService(MacServiceName); err != nil {
 		return err
 	}
-	_, err = ncutils.RunCmd("launchctl load /Library/LaunchDaemons/"+MacServiceName+".plist", true)
-	return err
+	return start()
 }
 
 func start() error {
@@ -48,11 +50,20 @@ func stop() error {
 	return nil
 }
 
+func hardRestart() error {
+	if _, err := ncutils.RunCmd("launchctl kickstart -k system/"+MacServiceName+" /Library/LaunchDaemons/"+MacServiceName+".plist", true); err != nil {
+		return err
+	}
+	return nil
+}
+
 // cleanUp - Removes the netclient checkin daemon from LaunchDaemons
 func cleanUp() error {
 	var faults bool
 	if _, err := ncutils.RunCmd("launchctl unload /Library/LaunchDaemons/"+MacServiceName+".plist", true); err != nil {
 		faults = true
+		// manually kill the daemon
+		signalDaemon(syscall.SIGTERM)
 	}
 	if ncutils.FileExists("/Library/LaunchDaemons/" + MacServiceName + ".plist") {
 		if err := os.Remove("/Library/LaunchDaemons/" + MacServiceName + ".plist"); err != nil {
@@ -123,4 +134,9 @@ func macDaemonString() string {
 type MacTemplateData struct {
 	Label    string
 	Interval string
+}
+
+// GetInitType - returns the init type (not applicable for darwin)
+func GetInitType() config.InitType {
+	return config.UnKnown
 }

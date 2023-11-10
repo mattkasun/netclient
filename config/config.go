@@ -2,7 +2,6 @@
 package config
 
 import (
-	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"net"
@@ -14,13 +13,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/gravitl/netclient/ncutils"
 	"github.com/gravitl/netmaker/logger"
-	"github.com/gravitl/netmaker/logic"
 	"github.com/gravitl/netmaker/models"
-	"github.com/spf13/viper"
-	"golang.org/x/crypto/nacl/box"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"gopkg.in/yaml.v3"
 )
@@ -44,6 +39,23 @@ const (
 	DefaultMTU = 1420
 )
 
+const (
+	UnKnown InitType = iota
+	Systemd
+	SysVInit
+	Runit
+	OpenRC
+	Initd
+)
+
+// Initype - the type of init system in use
+type InitType int
+
+// String - returns the string representation of the init type
+func (i InitType) String() string {
+	return [...]string{"unknown", "systemd", "sysvinit", "runit", "openrc", "initd"}[i]
+}
+
 var (
 	netclient Config // netclient contains the netclient config
 	// Version - default version string
@@ -56,21 +68,29 @@ var (
 	GW6PeerDetected bool
 	// GW6Addr - the peer's address for IPv6 gateways
 	GW6Addr net.IPNet
+	// FwClose - firewall manager shutdown func
+	FwClose func() = func() {}
+	// WgPublicListenPort - host's wireguard public listen port
+	WgPublicListenPort int
+	// HostPublicIP - host's public endpoint
+	HostPublicIP net.IP
+	// HostNatType - host's NAT type
+	HostNatType string
 )
 
 // Config configuration for netclient and host as a whole
 type Config struct {
 	models.Host
-	PrivateKey        wgtypes.Key                     `json:"privatekey" yaml:"privatekey"`
-	TrafficKeyPrivate []byte                          `json:"traffickeyprivate" yaml:"traffickeyprivate"`
-	InternetGateway   net.UDPAddr                     `json:"internetgateway" yaml:"internetgateway"`
-	HostPeers         map[string][]wgtypes.PeerConfig `json:"peers" yaml:"peers"`
+	PrivateKey        wgtypes.Key          `json:"privatekey" yaml:"privatekey"`
+	TrafficKeyPrivate []byte               `json:"traffickeyprivate" yaml:"traffickeyprivate"`
+	HostPeers         []wgtypes.PeerConfig `json:"host_peers" yaml:"host_peers"`
+	DisableGUIServer  bool                 `json:"disableguiserver" yaml:"disableguiserver"`
+	InitType          InitType             `json:"inittype" yaml:"inittype"`
 }
 
 func init() {
 	Servers = make(map[string]Server)
 	Nodes = make(map[string]Node)
-	netclient.HostPeers = make(map[string][]wgtypes.PeerConfig)
 }
 
 // UpdateNetcllient updates the in memory version of the host configuration
@@ -80,28 +100,40 @@ func UpdateNetclient(c Config) {
 	netclient = c
 }
 
-// UpdateHost - update host with data from server
-func UpdateHost(newHost *models.Host) {
-	netclient.Host.Name = newHost.Name
-	netclient.Host.Verbosity = newHost.Verbosity
-	netclient.Host.MTU = newHost.MTU
-	if newHost.ListenPort > 0 {
-		netclient.Host.ListenPort = newHost.ListenPort
+func UpdateHost(host *models.Host) (resetInterface, restart, sendHostUpdate bool) {
+	hostCfg := Netclient()
+	if hostCfg == nil || host == nil {
+		return
 	}
-	if newHost.ProxyListenPort > 0 {
-		netclient.Host.ProxyListenPort = newHost.ProxyListenPort
+	if host.ListenPort != 0 && hostCfg.ListenPort != host.ListenPort {
+		// check if new port is free, otherwise don't update
+		if !ncutils.IsPortFree(host.ListenPort) {
+			// send the host update to server with actual port on the interface
+			host.ListenPort = hostCfg.ListenPort
+			sendHostUpdate = true
+		}
+		restart = true
 	}
-	netclient.Host.IsDefault = newHost.IsDefault
-	netclient.Host.DefaultInterface = newHost.DefaultInterface
-	// only update proxy enabled if it hasn't been modified by another server
-	if !netclient.Host.ProxyEnabledSet {
-		netclient.Host.ProxyEnabled = newHost.ProxyEnabled
-		netclient.Host.ProxyEnabledSet = true
+	if host.MTU != 0 && hostCfg.MTU != host.MTU {
+		resetInterface = true
 	}
-	netclient.Host.IsStatic = newHost.IsStatic
-	if err := WriteNetclientConfig(); err != nil {
-		logger.Log(0, "error updating netclient config after update", err.Error())
-	}
+	// do not update fields that should not be changed by server
+	host.OS = hostCfg.OS
+	host.FirewallInUse = hostCfg.FirewallInUse
+	host.DaemonInstalled = hostCfg.DaemonInstalled
+	host.ID = hostCfg.ID
+	host.Version = hostCfg.Version
+	host.MacAddress = hostCfg.MacAddress
+	host.PublicKey = hostCfg.PublicKey
+	host.TrafficKeyPublic = hostCfg.TrafficKeyPublic
+	// don't update any public ports coming from server,overwrite the values
+	host.WgPublicListenPort = hostCfg.WgPublicListenPort
+	// store password before updating
+	host.HostPass = hostCfg.HostPass
+	hostCfg.Host = *host
+	UpdateNetclient(*hostCfg)
+	WriteNetclientConfig()
+	return
 }
 
 // Netclient returns a pointer to the im memory version of the host configuration
@@ -109,91 +141,36 @@ func Netclient() *Config {
 	return &netclient
 }
 
-// GetHostPeerList - gets the combined list of peers for the host
-func GetHostPeerList() (allPeers []wgtypes.PeerConfig) {
-	hostPeerMap := netclient.HostPeers
-	peerMap := make(map[string]int)
-	for _, serverPeers := range hostPeerMap {
-		serverPeers := serverPeers
-		for i, peerI := range serverPeers {
-			peerI := peerI
-			if ind, ok := peerMap[peerI.PublicKey.String()]; ok {
-				allPeers[ind].AllowedIPs = getUniqueAllowedIPList(allPeers[ind].AllowedIPs, peerI.AllowedIPs)
-			} else {
-				peerMap[peerI.PublicKey.String()] = i
-				allPeers = append(allPeers, peerI)
-			}
-
-		}
-	}
-	return
-}
-
 // UpdateHostPeers - updates host peer map in the netclient config
-func UpdateHostPeers(server string, peers []wgtypes.PeerConfig) (isHostInetGW bool) {
-	hostPeerMap := netclient.HostPeers
-	if hostPeerMap == nil {
-		hostPeerMap = make(map[string][]wgtypes.PeerConfig, 1)
-	}
-	hostPeerMap[server] = peers
-	netclient.HostPeers = hostPeerMap
-	return detectOrFilterGWPeers(server, peers)
+func UpdateHostPeers(peers []wgtypes.PeerConfig) (isHostInetGW bool) {
+	netclient.HostPeers = peers
+	return detectOrFilterGWPeers(peers)
 }
 
 // DeleteServerHostPeerCfg - deletes the host peers for the server
-func DeleteServerHostPeerCfg(server string) {
-	if netclient.HostPeers == nil {
-		netclient.HostPeers = make(map[string][]wgtypes.PeerConfig)
-		return
-	}
-	delete(netclient.HostPeers, server)
+func DeleteServerHostPeerCfg() {
+	netclient.HostPeers = []wgtypes.PeerConfig{}
 }
 
 // RemoveServerHostPeerCfg - sets remove flag for all peers on the given server peers
-func RemoveServerHostPeerCfg(serverName string) {
+func RemoveServerHostPeerCfg() {
 	if netclient.HostPeers == nil {
-		netclient.HostPeers = make(map[string][]wgtypes.PeerConfig)
+		netclient.HostPeers = []wgtypes.PeerConfig{}
 		return
 	}
-	peers := netclient.HostPeers[serverName]
+	peers := netclient.HostPeers
 	for i := range peers {
 		peer := peers[i]
 		peer.Remove = true
 		peers[i] = peer
 	}
-	netclient.HostPeers[serverName] = peers
+	netclient.HostPeers = peers
 	_ = WriteNetclientConfig()
-}
-
-func getUniqueAllowedIPList(currIps, newIps []net.IPNet) []net.IPNet {
-	uniqueIpList := []net.IPNet{}
-	ipMap := make(map[string]struct{})
-	uniqueIpList = append(uniqueIpList, currIps...)
-	uniqueIpList = append(uniqueIpList, newIps...)
-	for i := len(uniqueIpList) - 1; i >= 0; i-- {
-		if _, ok := ipMap[uniqueIpList[i].String()]; ok {
-			// if ip already exists, remove duplicate one
-			uniqueIpList = append(uniqueIpList[:i], uniqueIpList[i+1:]...)
-		} else {
-			ipMap[uniqueIpList[i].String()] = struct{}{}
-		}
-	}
-	return uniqueIpList
 }
 
 // SetVersion - sets version for use by other packages
 func SetVersion(ver string) {
 	Version = ver
-}
-
-// setLogVerbosity sets the logger verbosity from config
-func setLogVerbosity(flags *viper.Viper) {
-	verbosity := flags.GetInt("verbosity")
-	if netclient.Verbosity > verbosity {
-		logger.Verbosity = netclient.Verbosity
-		return
-	}
-	logger.Verbosity = verbosity
 }
 
 // ReadNetclientConfig reads the host configuration file and returns it as an instance.
@@ -209,6 +186,7 @@ func ReadNetclientConfig() (*Config, error) {
 		return nil, err
 	}
 	defer f.Close()
+	netclient = Config{}
 	if err := yaml.NewDecoder(f).Decode(&netclient); err != nil {
 		return nil, err
 	}
@@ -235,7 +213,7 @@ func WriteNetclientConfig() error {
 		return errors.New("failed to obtain lockfile")
 	}
 	defer Unlock(lockfile)
-	f, err := os.OpenFile(file, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.ModePerm)
+	f, err := os.OpenFile(file, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0700)
 	if err != nil {
 		return err
 	}
@@ -287,31 +265,26 @@ func Lock(lockfile string) error {
 				logger.Log(0, "file exists")
 			}
 			bytes, err := os.ReadFile(lockfile)
-			if err == nil {
+			if err != nil || len(bytes) == 0 {
+				_ = os.Remove(lockfile)
+			} else {
 				var owner int
-				if json.Unmarshal(bytes, &owner) == nil {
+				if err := json.Unmarshal(bytes, &owner); err != nil {
+					_ = os.Remove(lockfile)
+				} else {
 					if IsPidDead(owner) {
-						if err := os.Remove(lockfile); err != nil {
-							if debug {
-								logger.Log(0, "error removing lockfile", err.Error())
-							}
+						if err := os.Remove(lockfile); err != nil && debug {
+							logger.Log(0, "error removing lockfile", err.Error())
 						}
 					}
 				}
-			} else if debug {
-				logger.Log(0, "error reading lockfile", err.Error())
 			}
 		} else {
 			bytes, _ := json.Marshal(pid)
-			if err := os.WriteFile(lockfile, bytes, os.ModePerm); err == nil {
-				if debug {
-					logger.Log(0, "file locked")
-				}
-				return nil
+			if err := os.WriteFile(lockfile, bytes, os.ModePerm); err != nil && debug {
+				logger.Log(0, "unable to write to lockfile: ", err.Error())
 			} else {
-				if debug {
-					logger.Log(0, "unable to write: ", err.Error())
-				}
+				return nil
 			}
 		}
 		if debug {
@@ -337,12 +310,11 @@ func Unlock(lockfile string) error {
 	for {
 		bytes, err := os.ReadFile(lockfile)
 		if err != nil {
-
 			if errors.Is(err, os.ErrNotExist) {
 				return nil
 			}
 			if debug {
-				logger.Log(0, "error reading file")
+				logger.Log(0, "error reading file", err.Error())
 			}
 			return err
 		}
@@ -367,10 +339,8 @@ func Unlock(lockfile string) error {
 					logger.Log(0, "wrong pid")
 				}
 				if IsPidDead(pid) {
-					if err := os.Remove(lockfile); err != nil {
-						if debug {
-							logger.Log(0, "error removing lockfile", err.Error())
-						}
+					if err := os.Remove(lockfile); err != nil && debug {
+						logger.Log(0, "error removing lockfile", err.Error())
 					}
 				}
 			}
@@ -427,177 +397,6 @@ func InCharSet(name string) bool {
 	return true
 }
 
-// InitConfig reads in config file and ENV variables if set.
-func InitConfig(viper *viper.Viper) {
-	checkUID()
-	ReadNetclientConfig()
-	setLogVerbosity(viper)
-	ReadNodeConfig()
-	ReadServerConf()
-	CheckConfig()
-	//check netclient dirs exist
-	if _, err := os.Stat(GetNetclientPath()); err != nil {
-		if os.IsNotExist(err) {
-			if err := os.Mkdir(GetNetclientPath(), os.ModePerm); err != nil {
-				logger.Log(0, "failed to create dirs", err.Error())
-			}
-			if err := os.Chmod(GetNetclientPath(), 0775); err != nil {
-				logger.Log(0, "failed to update permissions of netclient config dir", err.Error())
-			}
-		} else {
-			logger.FatalLog("could not create /etc/netclient dir" + err.Error())
-		}
-	}
-	//wireguard.WriteWgConfig(Netclient(), GetNodes())
-}
-
-// CheckConfig - verifies and updates configuration settings
-func CheckConfig() {
-	fail := false
-	saveRequired := false
-	netclient := Netclient()
-	if netclient.OS != runtime.GOOS {
-		logger.Log(0, "setting OS")
-		netclient.OS = runtime.GOOS
-		saveRequired = true
-	}
-	if netclient.Version != Version {
-		logger.Log(0, "setting version")
-		netclient.Version = Version
-		saveRequired = true
-	}
-	netclient.IPForwarding = true
-	if netclient.ID == uuid.Nil {
-		logger.Log(0, "setting netclient hostid")
-		netclient.ID = uuid.New()
-		netclient.HostPass = logic.RandomString(32)
-		saveRequired = true
-	}
-	if netclient.Name == "" {
-		logger.Log(0, "setting name")
-		netclient.Name, _ = os.Hostname()
-		//make sure hostname is suitable
-		netclient.Name = FormatName(netclient.Name)
-		saveRequired = true
-	}
-	if netclient.MacAddress == nil {
-		logger.Log(0, "setting macAddress")
-		mac, err := ncutils.GetMacAddr()
-		if err != nil {
-			logger.FatalLog("failed to set macaddress", err.Error())
-		}
-		netclient.MacAddress = mac[0]
-		if runtime.GOOS == "darwin" && netclient.MacAddress.String() == "ac:de:48:00:11:22" {
-			if len(mac) > 1 {
-				netclient.MacAddress = mac[1]
-			} else {
-				netclient.MacAddress = ncutils.RandomMacAddress()
-			}
-		}
-		saveRequired = true
-	}
-	if (netclient.PrivateKey == wgtypes.Key{}) {
-		logger.Log(0, "setting wireguard keys")
-		var err error
-		netclient.PrivateKey, err = wgtypes.GeneratePrivateKey()
-		if err != nil {
-			logger.FatalLog("failed to generate wg key", err.Error())
-		}
-		netclient.PublicKey = netclient.PrivateKey.PublicKey()
-		saveRequired = true
-	}
-	if netclient.Interface == "" {
-		logger.Log(0, "setting wireguard interface")
-		netclient.Interface = models.WIREGUARD_INTERFACE
-		saveRequired = true
-	}
-	if netclient.ListenPort == 0 {
-		logger.Log(0, "setting listenport")
-		port, err := ncutils.GetFreePort(DefaultListenPort)
-		if err != nil {
-			logger.Log(0, "error getting free port", err.Error())
-		} else {
-			netclient.ListenPort = port
-			saveRequired = true
-		}
-	}
-	if netclient.ProxyListenPort == 0 {
-		logger.Log(0, "setting proxyListenPort")
-		port, err := ncutils.GetFreePort(models.NmProxyPort)
-		if err != nil {
-			logger.Log(0, "error getting free port", err.Error())
-		} else {
-			netclient.ProxyListenPort = port
-			saveRequired = true
-		}
-	}
-	if netclient.MTU == 0 {
-		logger.Log(0, "setting MTU")
-		netclient.MTU = DefaultMTU
-	}
-
-	if len(netclient.TrafficKeyPrivate) == 0 {
-		logger.Log(0, "setting traffic keys")
-		pub, priv, err := box.GenerateKey(rand.Reader)
-		if err != nil {
-			logger.FatalLog("error generating traffic keys", err.Error())
-		}
-		bytes, err := ncutils.ConvertKeyToBytes(priv)
-		if err != nil {
-			logger.FatalLog("error generating traffic keys", err.Error())
-		}
-		netclient.TrafficKeyPrivate = bytes
-		bytes, err = ncutils.ConvertKeyToBytes(pub)
-		if err != nil {
-			logger.FatalLog("error generating traffic keys", err.Error())
-		}
-		netclient.TrafficKeyPublic = bytes
-		saveRequired = true
-	}
-	// check for nftables present if on Linux
-	if FirewallHasChanged() {
-		saveRequired = true
-		SetFirewall()
-	}
-	if !ncutils.FileExists(GetNetclientPath() + "netmaker.conf") {
-		if err := os.MkdirAll(GetNetclientPath(), os.ModePerm); err != nil {
-			logger.Log(0, "failed to create /etc/netclient", err.Error())
-		}
-		if err := os.Chmod(GetNetclientPath(), 0775); err != nil {
-			logger.Log(0, "failed to chmod /etc/netclient", err.Error())
-		}
-		if _, err := os.Create(GetNetclientPath() + "netmaker.conf"); err != nil {
-			logger.Log(0, "failed to create netmaker.conf: ", err.Error())
-		}
-	}
-	if saveRequired {
-		logger.Log(3, "saving netclient configuration")
-		if err := WriteNetclientConfig(); err != nil {
-			logger.FatalLog("could not save netclient config " + err.Error())
-		}
-	}
-	_ = ReadServerConf()
-	for _, server := range Servers {
-		if server.MQID != netclient.ID {
-			fail = true
-			logger.Log(0, server.Name, "is misconfigured: MQID/Password does not match hostid/password")
-		}
-	}
-	_ = ReadNodeConfig()
-	nodes := GetNodes()
-	for _, node := range nodes {
-		//make sure server config exists
-		server := GetServer(node.Server)
-		if server == nil {
-			fail = true
-			logger.Log(0, "configuration for", node.Server, "is missing")
-		}
-	}
-	if fail {
-		logger.FatalLog("configuration is invalid, fix before proceeding")
-	}
-}
-
 // Convert converts netclient host/node struct to netmaker host/node structs
 func Convert(h *Config, n *Node) (models.Host, models.Node) {
 	var host models.Host
@@ -619,7 +418,7 @@ func Convert(h *Config, n *Node) (models.Host, models.Node) {
 	return host, node
 }
 
-func detectOrFilterGWPeers(server string, peers []wgtypes.PeerConfig) bool {
+func detectOrFilterGWPeers(peers []wgtypes.PeerConfig) bool {
 	isInetGW := IsHostInetGateway()
 	if len(peers) > 0 {
 		if GW4PeerDetected || GW6PeerDetected { // check if there is a change in GWs before proceeding
@@ -635,7 +434,7 @@ func detectOrFilterGWPeers(server string, peers []wgtypes.PeerConfig) bool {
 			}
 		}
 	}
-	clientPeers := GetHostPeerList()
+	clientPeers := netclient.HostPeers
 	var foundGW4Again, foundGW6Again bool
 	if len(clientPeers) > 0 {
 		for i := range clientPeers {
@@ -689,21 +488,19 @@ func peerHasIp(ip *net.IPNet, allowedIPs []net.IPNet) bool {
 // IsHostInetGateway - checks, based on netclient memory,
 // if current client is an internet gateway
 func IsHostInetGateway() bool {
-	servers := GetServers()
-	for i := range servers {
-		serverName := servers[i]
-		serverNodes := GetNodesByServer(serverName)
-		for j := range serverNodes {
-			serverNode := serverNodes[j]
-			if serverNode.IsEgressGateway {
-				for _, egressRange := range serverNode.EgressGatewayRanges {
-					if egressRange == "0.0.0.0/0" || egressRange == "::/0" {
-						return true
-					}
+
+	serverNodes := GetNodes()
+	for j := range serverNodes {
+		serverNode := serverNodes[j]
+		if serverNode.IsEgressGateway {
+			for _, egressRange := range serverNode.EgressGatewayRanges {
+				if egressRange == "0.0.0.0/0" || egressRange == "::/0" {
+					return true
 				}
 			}
 		}
 	}
+
 	return false
 }
 

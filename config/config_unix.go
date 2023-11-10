@@ -8,14 +8,14 @@ import (
 	"os/user"
 )
 
-// checkUID - Checks to make sure user has root privileges
-func checkUID() {
+// CheckUID - Checks to make sure user has root privileges
+func CheckUID() {
 	// start our application
 	user, err := user.Current()
 	if err != nil {
 		log.Fatal(err)
 	}
-	if user.Username != "root" {
+	if user.Uid != "0" {
 		log.Fatal("This program must be run with elevated privileges. Please re-run with sudo or as root.")
 	}
 }

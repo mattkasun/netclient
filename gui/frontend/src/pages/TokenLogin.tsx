@@ -26,7 +26,7 @@ function TokenLogin() {
   const [enrollmentKey, setEnrollmentKey] = useState("");
   const [isConnecting, setIsConnecting] = useState(false);
   const [type, setType] = useState<"access-key" | "enrollment-key">(
-    "enrollment-key"
+    "enrollment-key",
   );
   const navigate = useNavigate();
   const { networksDispatch } = useNetworksContext();
@@ -57,6 +57,8 @@ function TokenLogin() {
       switch (type) {
         case "enrollment-key":
           await GoRegisterWithEnrollmentKey(enrollmentKey);
+          // wait a while for the server to register host to network. makes the UX better
+          await new Promise((resolve) => setTimeout(resolve, 3000));
           break;
       }
 
@@ -90,13 +92,18 @@ function TokenLogin() {
         <h1 className="page-title">Connect with Token</h1>
       </Grid>
 
-      <Grid item xs={12}>
+      {/* <Grid item xs={12}>
         <FormControl>
           <FormLabel>Token type</FormLabel>
           <RadioGroup
             onChange={(ev, type) => setType(type as any)}
-            defaultValue="enrollment-key"
+            defaultValue="access-key"
           >
+            <FormControlLabel
+              label="Access Key"
+              value="access-key"
+              control={<Radio />}
+            />
             <FormControlLabel
               value="enrollment-key"
               control={<Radio />}
@@ -104,8 +111,26 @@ function TokenLogin() {
             />
           </RadioGroup>
         </FormControl>
-      </Grid>
+      </Grid> */}
 
+      {type === "access-key" && (
+        <Grid item xs={12}>
+          <TextField
+            key="token-inp"
+            label="Token"
+            placeholder="Enter network token"
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+            error={!isFormValid}
+            helperText={isFormValid ? "" : "Token cannot be empty"}
+            inputProps={{ "data-testid": "token-inp" }}
+          />
+          <br />
+          <Typography variant="caption">
+            *Token can be acquired from Netmaker server
+          </Typography>
+        </Grid>
+      )}
       {type === "enrollment-key" && (
         <Grid item xs={12}>
           <TextField

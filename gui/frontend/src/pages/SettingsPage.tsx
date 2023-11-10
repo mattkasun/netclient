@@ -30,7 +30,7 @@ export default function SettingsPage() {
       setIsLoadingDetails(true);
       const config = await GoGetNetclientConfig();
       setNcSettings(config);
-      console.log(config)
+      console.log(config);
     } catch (err) {
       await notifyUser(("Failed to load settings\n" + err) as string);
       console.error(err);
@@ -338,26 +338,6 @@ export default function SettingsPage() {
             <Grid item xs={4} md={3}>
               <TextField
                 disabled={!isEditing}
-                name="internetgateway"
-                label="Internet Gateway"
-                value={
-                  isEditing
-                    ? ncSettingsFormData?.internetgateway
-                    : `${String(ncSettings?.internetgateway.IP)}:${String(
-                        ncSettings?.internetgateway.Port
-                      )}` // how to get
-                }
-                onChange={(ev) =>
-                  setNcSettingsFormData({
-                    ...ncSettingsFormData!,
-                    internetgateway: ev.target.value,
-                  })
-                }
-              />
-            </Grid>
-            <Grid item xs={4} md={3}>
-              <TextField
-                disabled={!isEditing}
                 name="macaddress"
                 label="MAC Address"
                 value={
@@ -454,36 +434,10 @@ export default function SettingsPage() {
             <Grid item xs={8} md={9}>
               Interfaces:{" "}
               {ncSettings?.interfaces
-                .map((iface) => `${iface.name} (${String(iface.addressString)})`)
+                .map(
+                  (iface) => `${iface.name} (${String(iface.addressString)})`,
+                )
                 .join(", ")}
-            </Grid>
-
-            <Grid item xs={12}></Grid>
-
-            <Grid item xs={4} md={3}>
-              <FormControlLabel
-                disabled={!isEditing}
-                label="Relay"
-                control={
-                  <Switch
-                    checked={
-                      isEditing
-                        ? ncSettingsFormData?.isrelay
-                        : ncSettings?.isrelay
-                    }
-                    onChange={(ev) =>
-                      setNcSettingsFormData({
-                        ...ncSettingsFormData!,
-                        isrelay: ev.target.checked,
-                      })
-                    }
-                  />
-                }
-              />
-            </Grid>
-            <Grid item xs={8} md={9}>
-              Relaying (hosts):{" "}
-              {ncSettings?.relay_hosts.map((hostId) => hostId).join(", ")}
             </Grid>
 
             <Grid item xs={12}></Grid>
